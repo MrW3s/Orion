@@ -28,7 +28,7 @@ Requests flow one way: **controller → service → (repository | engine | acces
 | `scheduling/` | Given tasks and dependencies, work out the schedule (graph, cycle detection, ordering, dates) | The scheduling algorithm. **Imports nothing from Django** |
 | `tasks/` | The task use cases (stories 1 & 2) and their API | How tasks are stored and which concrete collaborators are used |
 | `accounts/` | Users' roles and the pages for managing them (story 4) | Which role may use which feature (`ROLE_FEATURES` in `services.py`) |
-| `projects/` | Projects and who belongs to them | The membership rules |
+| `projects/` | Projects, who belongs to them, and creating them | The membership rules |
 | `notifications/` | Telling connected members that something changed | The real-time transport (Channels/WebSockets) |
 | `common/` | Shared domain errors and their HTTP mapping | Mapping from business errors to HTTP status codes |
 | `config/` | Settings, URL routing, ASGI entry point | Deployment details |
@@ -57,6 +57,8 @@ Requests flow one way: **controller → service → (repository | engine | acces
 ```
 
 * **No cycles** between modules (checked: `scheduling` and `common` import nothing from the others).
+* **`projects` → `accounts`:** creating a project asks `RoleService.can(user, "create_projects")`;
+  `accounts` imports nothing from `projects` or `tasks`, so roles stay at the bottom with `common`.
 * **`tasks` → `scheduling`: data coupling only.** The service passes plain `TaskNode` values
   and gets a plain `ScheduleResult` back. The engine never sees a Django model, so it can be
   unit-tested without a database and swapped or extended on its own.
@@ -73,10 +75,12 @@ Requests flow one way: **controller → service → (repository | engine | acces
 **Story 1: add a task to the schedule**
 `POST /api/projects/{id}/tasks/` → `views.ProjectTasksView.post` → `TaskService.add_task`
 1. Check the user is a project member (`ProjectAccess`).
-2. Check dependencies belong to the same project.
-3. In one transaction: create the task → `_reschedule()` rebuilds the dependency graph →
+2. Check the task has a name and valid dates (end ≥ start, start ≥ project start). The duration
+   estimate is the number of days from start to end, both included.
+3. Check dependencies belong to the same project.
+4. In one transaction: create the task → `_reschedule()` rebuilds the dependency graph →
    `Scheduler.compute()` → repository saves the new dates. A cycle rolls everything back.
-4. After commit: publish `schedule.changed` to `project_{id}`; the clients re-fetch.
+5. After commit: publish `schedule.changed` to `project_{id}`; the clients re-fetch.
 
 **Story 2: update status from the schedule view**
 `PATCH /api/tasks/{id}/status/` → `views.TaskStatusView.patch` → `TaskService.update_status`
@@ -91,7 +95,7 @@ Requests flow one way: **controller → service → (repository | engine | acces
 |---|---|---|
 | **User** | Django built-in (`username`, `password`, …) | |
 | **Project** | `name`, `start_date`, `members` (M:N → User) | Only members can view/change its tasks |
-| **Task** | `project` (FK), `title`, `description`, `assignee` (FK User, optional), `created_by`, `duration_days` (≥ 1), `status` (`todo` / `in_progress` / `complete`), `depends_on` (M:N → Task), `scheduled_start`, `scheduled_end`, timestamps | Dependencies must be in the same project and form no cycle; assignee must be a member; scheduled dates are written by the engine only |
+| **Task** | `project` (FK), `title`, `description`, `assignee` (FK User, optional), `created_by`, `planned_start` (the start date the user picked), `duration_days` (≥ 1), `status` (`todo` = "Not started" / `in_progress` / `complete`), `depends_on` (M:N → Task), `scheduled_start`, `scheduled_end`, timestamps | Dependencies must be in the same project and form no cycle; assignee must be a member; scheduled dates are written by the engine only, never earlier than `planned_start` |
 
 Relationships: Project 1─* Task · Project *─* User · Task *─* Task (dependency).
 

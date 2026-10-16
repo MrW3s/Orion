@@ -1,0 +1,97 @@
+{% extends "accounts/base.html" %}
+
+{% block title %}{{ project.name }} · Orion{% endblock %}
+
+{% block content %}
+<h1>{{ project.name }}</h1>
+<p class="muted">Project starts {{ project.start_date|date:"M j, Y" }}</p>
+
+<div class="card" id="schedule">
+  <h2>Schedule</h2>
+  {% if tasks %}
+  <table>
+    <tr>
+      <th>Task</th><th>Status</th><th>Assignee</th><th>Start</th><th>End</th><th>Days</th><th>Depends on</th>
+    </tr>
+    {% for task in tasks %}
+    <tr>
+      <td>
+        {{ task.title }}
+        {% if task.description %}<div class="small muted">{{ task.description }}</div>{% endif %}
+      </td>
+      <td><span class="status status-{{ task.status }}">{{ task.get_status_display }}</span></td>
+      <td>{{ task.assignee.username|default:"&mdash;" }}</td>
+      <td>
+        {{ task.scheduled_start|date:"M j" }}
+        {% if task.moved_by_dependencies %}
+          <div class="small muted">planned {{ task.planned_start|date:"M j" }}, moved to wait for its dependencies</div>
+        {% endif %}
+      </td>
+      <td>{{ task.scheduled_end|date:"M j" }}</td>
+      <td>{{ task.duration_days }}</td>
+      <td>
+        {% for dep in task.depends_on.all %}{{ dep.title }}{% if not forloop.last %}, {% endif %}{% empty %}&mdash;{% endfor %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">No tasks yet. Add the first one below.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Add a task</h2>
+  {% if form.errors %}
+    <div class="msg msg-error">
+      The task wasn't added. {% for error in form.non_field_errors %}{{ error }}.{% empty %}Fix the fields marked below.{% endfor %}
+    </div>
+  {% endif %}
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <div class="field">
+      <label for="{{ form.title.id_for_label }}">{{ form.title.label }}</label>
+      {{ form.title }}{{ form.title.errors }}
+    </div>
+    <div class="grid2">
+      <div class="field">
+        <label for="{{ form.start_date.id_for_label }}">{{ form.start_date.label }}</label>
+        {{ form.start_date }}{{ form.start_date.errors }}
+      </div>
+      <div class="field">
+        <label for="{{ form.end_date.id_for_label }}">{{ form.end_date.label }}</label>
+        {{ form.end_date }}{{ form.end_date.errors }}
+      </div>
+    </div>
+    <div class="field">
+      <label for="{{ form.assignee_id.id_for_label }}">{{ form.assignee_id.label }}</label>
+      {{ form.assignee_id }}{{ form.assignee_id.errors }}
+    </div>
+    {% if tasks %}
+    <div class="field checks">
+      <label>{{ form.depends_on_ids.label }}</label>
+      {{ form.depends_on_ids }}{{ form.depends_on_ids.errors }}
+    </div>
+    {% endif %}
+    <div class="field">
+      <label for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+      {{ form.description }}{{ form.description.errors }}
+    </div>
+    <button>Add task</button>
+  </form>
+</div>
+
+<script>
+  // "Viewable by all relevant team members": when anyone changes this project,
+  // refresh the schedule table in place. The form keeps whatever you've typed.
+  (function () {
+    const scheme = location.protocol === "https:" ? "wss" : "ws";
+    const socket = new WebSocket(scheme + "://" + location.host + "/ws/projects/{{ project.pk }}/");
+    socket.onmessage = async function () {
+      const html = await (await fetch(location.href)).text();
+      const fresh = new DOMParser().parseFromString(html, "text/html").getElementById("schedule");
+      if (fresh) document.getElementById("schedule").replaceWith(fresh);
+    };
+  })();
+</script>
+{% endblock %}

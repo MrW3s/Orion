@@ -27,13 +27,15 @@ FEATURES = {
     "view_schedule": "View project schedules",
     "add_task": "Add tasks",
     "update_status": "Update task status",
+    "create_projects": "Create projects",
     "view_risk": "Dependency graph and critical path",
     "manage_users": "Manage user roles",
 }
 
 ROLE_FEATURES = {
     Role.TEAM_MEMBER: {"view_schedule", "add_task", "update_status"},
-    Role.PROJECT_MANAGER: {"view_schedule", "add_task", "update_status", "view_risk"},
+    Role.PROJECT_MANAGER: {"view_schedule", "add_task", "update_status", "create_projects",
+                           "view_risk"},
     Role.ADMIN: set(FEATURES),
 }
 

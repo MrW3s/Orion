@@ -6,6 +6,7 @@ caching), only this module changes.
 """
 from __future__ import annotations
 
+from datetime import date
 from typing import Iterable
 
 from common.errors import TaskNotFound
@@ -33,10 +34,12 @@ class TaskRepository:
         )
 
     def create(self, *, project_id: int, created_by, title: str, description: str,
-               duration_days: int, assignee_id: int | None, depends_on_ids: Iterable[int]) -> Task:
+               duration_days: int, planned_start: date, assignee_id: int | None,
+               depends_on_ids: Iterable[int]) -> Task:
         task = Task.objects.create(
             project_id=project_id, created_by=created_by, title=title,
-            description=description, duration_days=duration_days, assignee_id=assignee_id,
+            description=description, duration_days=duration_days,
+            planned_start=planned_start, assignee_id=assignee_id,
         )
         task.depends_on.set(list(depends_on_ids))
         return task

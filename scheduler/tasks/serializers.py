@@ -12,7 +12,7 @@ class TaskSerializer(serializers.ModelSerializer):
         model = Task
         fields = [
             "id", "project", "title", "description", "assignee", "status",
-            "duration_days", "depends_on", "scheduled_start", "scheduled_end",
+            "duration_days", "planned_start", "depends_on", "scheduled_start", "scheduled_end",
             "created_by", "updated_at",
         ]
         read_only_fields = fields
@@ -21,7 +21,8 @@ class TaskSerializer(serializers.ModelSerializer):
 class CreateTaskSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=200)
     description = serializers.CharField(required=False, allow_blank=True, default="")
-    duration_days = serializers.IntegerField(min_value=1, default=1)
+    start_date = serializers.DateField()
+    end_date = serializers.DateField()  # with start_date, this is the duration estimate
     assignee_id = serializers.IntegerField(required=False, allow_null=True, default=None)
     depends_on_ids = serializers.ListField(
         child=serializers.IntegerField(), required=False, default=list,

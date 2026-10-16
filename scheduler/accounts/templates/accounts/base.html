@@ -43,6 +43,19 @@
     .msg { padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; }
     .msg-success { background: var(--ok-bg); color: var(--ok-text); }
     .msg-error { background: var(--err-bg); color: var(--err-text); }
+    .small { font-size: 13px; }
+    .field { margin-bottom: 14px; }
+    .field > label { margin-bottom: 4px; }
+    .field input, .field select, .field textarea { width: 100%; }
+    textarea { font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+    .checks div label { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; font-weight: 400; }
+    .checks input[type=checkbox] { width: auto; margin: 0; }
+    .errorlist { list-style: none; margin: 4px 0 0; padding: 0; color: var(--err-text); font-size: 13px; }
+    .status { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 13px; white-space: nowrap; }
+    .status-todo { background: #eef0f3; color: var(--muted); }
+    .status-in_progress { background: #fff4d6; color: #8a5a00; }
+    .status-complete { background: var(--ok-bg); color: var(--ok-text); }
   </style>
 </head>
 <body>
