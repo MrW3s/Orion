@@ -1,0 +1,11 @@
+{% extends "accounts/base.html" %}
+
+{% block title %}Access denied · Orion{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h1>Access denied</h1>
+  <p>Your role doesn't include this page. Ask an administrator if you need access.</p>
+  <p><a href="{% url 'home' %}">&larr; Back to home</a></p>
+</div>
+{% endblock %}

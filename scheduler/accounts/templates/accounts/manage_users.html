@@ -1,0 +1,52 @@
+{% extends "accounts/base.html" %}
+
+{% block title %}Manage users · Orion{% endblock %}
+
+{% block content %}
+<h1>Manage users</h1>
+
+<div class="card">
+  <table>
+    <tr><th>User</th><th>Role</th></tr>
+    {% for row in rows %}
+    <tr>
+      <td>
+        {{ row.user.username }}
+        {% if row.user.pk == user.pk %}<span class="muted">(you)</span>{% endif %}
+      </td>
+      <td>
+        {% if row.locked_reason %}
+          {{ row.role.label }} <span class="muted">· {{ row.locked_reason }}</span>
+        {% else %}
+          <form method="post" action="{% url 'change-role' row.user.pk %}" class="inline">
+            {% csrf_token %}
+            <select name="role" aria-label="Role for {{ row.user.username }}">
+              {% for value, label in roles %}
+                <option value="{{ value }}"{% if value == row.role %} selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            <button>Save</button>
+          </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+
+<div class="card">
+  <h2>What each role can access</h2>
+  <table>
+    <tr>
+      <th>Feature</th>
+      {% for value, label in roles %}<th class="check">{{ label }}</th>{% endfor %}
+    </tr>
+    {% for feature, allowed in matrix %}
+    <tr>
+      <td>{{ feature }}</td>
+      {% for ok in allowed %}<td class="check">{% if ok %}&#10003;{% else %}<span class="muted">&mdash;</span>{% endif %}</td>{% endfor %}
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

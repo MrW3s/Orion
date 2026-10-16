@@ -23,3 +23,15 @@ class InvalidDependency(DomainError):
 
 class TaskNotFound(DomainError):
     pass
+
+
+class NotAnAdmin(DomainError):
+    """Only administrators may do this (story 4)."""
+
+
+class InvalidRoleChange(DomainError):
+    """Unknown role, or a role that can't be changed (your own, a superuser's)."""
+
+
+class UserNotFound(DomainError):
+    pass
