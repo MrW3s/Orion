@@ -41,5 +41,9 @@ class NotAllowed(DomainError):
     """The user's role doesn't include this feature."""
 
 
+class InvalidUser(DomainError):
+    """New user data breaks a rule (username taken, weak password)."""
+
+
 class InvalidProject(DomainError):
     """Project data breaks a rule (e.g. no name)."""

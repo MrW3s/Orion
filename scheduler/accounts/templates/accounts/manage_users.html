@@ -34,6 +34,38 @@
   </table>
 </div>
 
+<div class="card" id="add-user">
+  <h2>Add a user</h2>
+  {% if form.errors %}
+    <div class="msg msg-error">
+      The user wasn't created. {% for error in form.non_field_errors %}{{ error }}.{% empty %}Fix the fields marked below.{% endfor %}
+    </div>
+  {% endif %}
+  <form method="post" action="{% url 'manage-users' %}#add-user" novalidate>
+    {% csrf_token %}
+    <div class="grid2">
+      <div class="field">
+        <label for="{{ form.username.id_for_label }}">Username</label>
+        {{ form.username }}{{ form.username.errors }}
+      </div>
+      <div class="field">
+        <label for="{{ form.role.id_for_label }}">Role</label>
+        {{ form.role }}{{ form.role.errors }}
+      </div>
+      <div class="field">
+        <label for="{{ form.password1.id_for_label }}">Password</label>
+        {{ form.password1 }}{{ form.password1.errors }}
+      </div>
+      <div class="field">
+        <label for="{{ form.password2.id_for_label }}">Confirm password</label>
+        {{ form.password2 }}{{ form.password2.errors }}
+      </div>
+    </div>
+    <p class="small muted">At least 8 characters, not too common, and not all numbers. They can change it after logging in.</p>
+    <button>Create user</button>
+  </form>
+</div>
+
 <div class="card">
   <h2>What each role can access</h2>
   <table>
