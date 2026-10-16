@@ -35,3 +35,11 @@ class InvalidRoleChange(DomainError):
 
 class UserNotFound(DomainError):
     pass
+
+
+class NotAllowed(DomainError):
+    """The user's role doesn't include this feature."""
+
+
+class InvalidProject(DomainError):
+    """Project data breaks a rule (e.g. no name)."""

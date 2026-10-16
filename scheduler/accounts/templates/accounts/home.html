@@ -18,10 +18,13 @@
   <h2>Your projects</h2>
   {% for project in user.projects.all %}
     {% if forloop.first %}<table><tr><th>Project</th><th>Starts</th></tr>{% endif %}
-    <tr><td>{{ project.name }}</td><td>{{ project.start_date }}</td></tr>
+    <tr><td><a href="{% url 'project-schedule' project.pk %}">{{ project.name }}</a></td><td>{{ project.start_date }}</td></tr>
     {% if forloop.last %}</table>{% endif %}
   {% empty %}
     <p class="muted">You're not on any projects yet.</p>
   {% endfor %}
+  {% if can_create_projects %}
+    <p><a href="{% url 'new-project' %}">+ New project</a></p>
+  {% endif %}
 </div>
 {% endblock %}

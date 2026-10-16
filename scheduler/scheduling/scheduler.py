@@ -1,8 +1,8 @@
 """Turns a set of tasks + dependencies into concrete start/end dates.
 
 Uses a forward pass (as in the Critical Path Method): a task starts on the
-project start date, or the day after its latest predecessor finishes,
-whichever is later.
+project start date, its own earliest start date (if it has one), or the day
+after its latest predecessor finishes, whichever is latest.
 
 Like graph.py, this module has no Django imports. The tasks app hands it
 plain TaskNode values and gets a plain ScheduleResult back, so the only
@@ -33,6 +33,7 @@ class TaskNode:
     id: TaskId
     duration_days: int
     depends_on: frozenset[TaskId] = field(default_factory=frozenset)
+    earliest_start: date | None = None  # "don't start before", e.g. the date a user picked
 
 
 @dataclass(frozen=True)
@@ -65,7 +66,7 @@ class Scheduler:
         slots: dict[TaskId, ScheduledTask] = {}
         for task_id in order:
             task = tasks_by_id[task_id]
-            start = project_start
+            start = max(project_start, task.earliest_start or project_start)
             for dep in task.depends_on:
                 start = max(start, slots[dep].end + timedelta(days=1))
             end = start + timedelta(days=max(task.duration_days, 1) - 1)

@@ -25,7 +25,7 @@ def home(request):
     return render(request, "accounts/home.html", {
         "role": roles.role_of(request.user),
         "features": roles.features_of(request.user),
-        "is_admin": roles.can(request.user, "manage_users"),
+        "can_create_projects": roles.can(request.user, "create_projects"),
     })
 
 
@@ -40,7 +40,6 @@ def manage_users(request):
         "rows": rows,
         "roles": Role.choices,
         "matrix": roles.permission_matrix(),
-        "is_admin": True,
     })
 
 

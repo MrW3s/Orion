@@ -1,0 +1,16 @@
+"""The "New project" form. Shape checks only; the rules are in services.py."""
+from django import forms
+
+
+class NewProjectForm(forms.Form):
+    name = forms.CharField(label="Project name", max_length=200,
+                           error_messages={"required": "Give the project a name."})
+    start_date = forms.DateField(label="Start date",
+                                 widget=forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+                                 error_messages={"required": "Pick a start date."})
+    member_ids = forms.TypedMultipleChoiceField(label="Team members", coerce=int, required=False,
+                                                widget=forms.CheckboxSelectMultiple)
+
+    def __init__(self, *args, users=(), **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["member_ids"].choices = [(u.pk, u.get_username()) for u in users]

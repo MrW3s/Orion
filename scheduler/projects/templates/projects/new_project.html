@@ -1,0 +1,34 @@
+{% extends "accounts/base.html" %}
+
+{% block title %}New project · Orion{% endblock %}
+
+{% block content %}
+<h1>New project</h1>
+
+<div class="card">
+  {% if form.errors %}
+    <div class="msg msg-error">
+      The project wasn't created. {% for error in form.non_field_errors %}{{ error }}.{% empty %}Fix the fields marked below.{% endfor %}
+    </div>
+  {% endif %}
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <div class="grid2">
+      <div class="field">
+        <label for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
+        {{ form.name }}{{ form.name.errors }}
+      </div>
+      <div class="field">
+        <label for="{{ form.start_date.id_for_label }}">{{ form.start_date.label }}</label>
+        {{ form.start_date }}{{ form.start_date.errors }}
+      </div>
+    </div>
+    <div class="field checks">
+      <label>{{ form.member_ids.label }}</label>
+      <p class="small muted">Members can see the project's schedule and add tasks. You're added automatically.</p>
+      {{ form.member_ids }}{{ form.member_ids.errors }}
+    </div>
+    <button>Create project</button>
+  </form>
+</div>
+{% endblock %}

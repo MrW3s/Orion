@@ -37,3 +37,16 @@ class SchedulerTests(unittest.TestCase):
     def test_unknown_dependency_rejected(self):
         with self.assertRaises(KeyError):
             self.scheduler.compute(START, [TaskNode("a", 1, frozenset({"ghost"}))])
+
+    def test_task_waits_for_its_own_start_date(self):
+        result = self.scheduler.compute(START, [TaskNode("copy", 3, earliest_start=date(2026, 10, 22))])
+        self.assertEqual(result.tasks["copy"].start, date(2026, 10, 22))
+        self.assertEqual(result.tasks["copy"].end, date(2026, 10, 24))
+
+    def test_unfinished_dependency_moves_task_past_its_start_date(self):
+        result = self.scheduler.compute(START, [
+            TaskNode("design", 5),                                     # Oct 19-23
+            TaskNode("build", 2, frozenset({"design"}), earliest_start=date(2026, 10, 20)),
+        ])
+        self.assertEqual(result.tasks["build"].start, date(2026, 10, 24))  # keeps its 2 days
+        self.assertEqual(result.tasks["build"].end, date(2026, 10, 25))
