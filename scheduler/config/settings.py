@@ -17,6 +17,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "channels",
     # our modules
+    "accounts",
     "projects",
     "tasks",
     "notifications",
@@ -67,3 +68,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 USE_TZ = True
 TIME_ZONE = "America/New_York"
 STATIC_URL = "static/"
+
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "home"
+LOGOUT_REDIRECT_URL = "login"

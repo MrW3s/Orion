@@ -9,7 +9,7 @@ A **client-server** system using a **thin client**:
 
 | Layer | Where | In this repo |
 |---|---|---|
-| Presentation | React in the browser | (not included); talks to the REST API and the WebSocket |
+| Presentation | React in the browser | (not included); talks to the REST API and the WebSocket. Story 4 has simple Django-rendered pages in `accounts/templates/` for now |
 | Application processing | Django server | `tasks/services.py`, `scheduling/` |
 | Data management | Django server + SQLite | `*/models.py`, `tasks/repository.py` |
 
@@ -27,7 +27,8 @@ Requests flow one way: **controller → service → (repository | engine | acces
 |---|---|---|
 | `scheduling/` | Given tasks and dependencies, work out the schedule (graph, cycle detection, ordering, dates) | The scheduling algorithm. **Imports nothing from Django** |
 | `tasks/` | The task use cases (stories 1 & 2) and their API | How tasks are stored and which concrete collaborators are used |
-| `projects/` | Projects and who belongs to them | The membership/permission rules |
+| `accounts/` | Users' roles and the pages for managing them (story 4) | Which role may use which feature (`ROLE_FEATURES` in `services.py`) |
+| `projects/` | Projects and who belongs to them | The membership rules |
 | `notifications/` | Telling connected members that something changed | The real-time transport (Channels/WebSockets) |
 | `common/` | Shared domain errors and their HTTP mapping | Mapping from business errors to HTTP status codes |
 | `config/` | Settings, URL routing, ASGI entry point | Deployment details |
@@ -110,7 +111,7 @@ To add later, without changing existing callers:
 2. Add `slack_days`, `is_critical` to `ScheduledTask` and `critical_path` to `ScheduleResult`
    (spots are marked `FUTURE:` in the code).
 3. Add `slack_days` / `is_critical` columns to `Task` and save them in `TaskRepository.save_schedule()`.
-4. A PM-only endpoint (e.g. `GET /api/projects/{id}/risk/`) that reads them, guarded by a role check added to `projects/access.py`.
+4. A PM-only endpoint (e.g. `GET /api/projects/{id}/risk/`) that reads them, guarded by `RoleService().can(user, "view_risk")` from `accounts/` (project managers and admins).
 
 Because the engine is isolated behind `ScheduleResult`, steps 1–2 don't touch Django at all,
 and `services.py` doesn't change.
@@ -122,4 +123,4 @@ and `services.py` doesn't change.
 * **Information hiding:** each module hides a decision likely to change (algorithm, storage, permissions, transport).
 * **Separation of concerns:** HTTP, business rules, persistence and real-time are in separate files.
 * **DRY:** all membership checks go through `ProjectAccess`; all task queries through `TaskRepository`.
-* **YAGNI:** critical path, roles, and notifications other than real-time are left as marked extension points, not built yet.
+* **YAGNI:** critical path and notifications other than real-time are left as marked extension points, not built yet.

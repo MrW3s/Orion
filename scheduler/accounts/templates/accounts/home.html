@@ -1,0 +1,27 @@
+{% extends "accounts/base.html" %}
+
+{% block content %}
+<h1>Welcome, {{ user.get_full_name|default:user.username }}</h1>
+
+<div class="card">
+  <p>Your role: <span class="badge">{{ role.label }}</span></p>
+  <h2>What you can access</h2>
+  <ul>
+    {% for feature in features %}<li>{{ feature }}</li>{% endfor %}
+  </ul>
+  {% if is_admin %}
+    <p><a href="{% url 'manage-users' %}">Manage user roles &rarr;</a></p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Your projects</h2>
+  {% for project in user.projects.all %}
+    {% if forloop.first %}<table><tr><th>Project</th><th>Starts</th></tr>{% endif %}
+    <tr><td>{{ project.name }}</td><td>{{ project.start_date }}</td></tr>
+    {% if forloop.last %}</table>{% endif %}
+  {% empty %}
+    <p class="muted">You're not on any projects yet.</p>
+  {% endfor %}
+</div>
+{% endblock %}

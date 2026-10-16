@@ -1,0 +1,23 @@
+{% extends "accounts/base.html" %}
+
+{% block title %}Log in · Orion{% endblock %}
+
+{% block content %}
+<div class="card narrow">
+  <h1>Log in to Orion</h1>
+  {% if form.errors %}
+    <div class="msg msg-error">Wrong username or password.</div>
+  {% endif %}
+  <form method="post">
+    {% csrf_token %}
+    <label>Username
+      <input name="username" value="{{ form.username.value|default:'' }}" autocomplete="username" autofocus required>
+    </label>
+    <label>Password
+      <input type="password" name="password" autocomplete="current-password" required>
+    </label>
+    <input type="hidden" name="next" value="{{ next }}">
+    <button>Log in</button>
+  </form>
+</div>
+{% endblock %}
