@@ -13,7 +13,7 @@ pip install -r requirements.txt
 python manage.py migrate
 python manage.py createsuperuser        # the first admin (can create projects at /projects/new/)
 python manage.py runserver              # serves HTTP and WebSockets (via daphne)
-python manage.py test accounts projects scheduling tasks  # 43 tests
+python manage.py test accounts projects scheduling tasks  # 49 tests
 ```
 
 ## API
@@ -33,7 +33,8 @@ Open http://127.0.0.1:8000/ and log in.
 |---|---|---|
 | `/login/` | anyone | log in |
 | `/` | any user | your role, what it lets you access, your projects |
-| `/users/` | admins only | story 4: change any user's role (team member / project manager / administrator) |
+| `/users/` | admins only | story 4: change any user's role (team member / project manager / administrator), and add new users with a password and role |
+| `/password/` | any user | change your own password |
 | `/projects/new/` | project managers, admins | create a project and pick its members (you're added automatically) |
 | `/projects/{id}/` | project members | story 1: the schedule, plus a form to add a task (name, start date, end date, assignee, dependencies). Updates live when anyone changes the project |
 

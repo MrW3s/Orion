@@ -8,6 +8,9 @@
     when they try to change another user's permissions,
     then the system denies access and the permissions stay unchanged.
 
+Admins can also create users (with a password and a role), since there is
+no sign-up page.
+
 Which role may use which feature is decided only here (ROLE_FEATURES). If
 the rules change, this dict changes and the views and templates don't
 (information hiding). The service never mentions HTTP; it raises domain
@@ -18,8 +21,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.db import transaction
 
-from common.errors import InvalidRoleChange, NotAnAdmin, UserNotFound
+from common.errors import InvalidRoleChange, InvalidUser, NotAnAdmin, UserNotFound
 
 from .models import Profile, Role
 
@@ -95,6 +101,30 @@ class RoleService:
 
         Profile.objects.update_or_create(user=target, defaults={"role": role})
         return UserRow(target, Role(role))
+
+    def create_user(self, admin, username: str, password: str, role: str) -> UserRow:
+        self.require_admin(admin)
+        if role not in Role.values:
+            raise InvalidUser(f"Unknown role {role!r}")
+        username = username.strip()
+        if not username:
+            raise InvalidUser("Enter a username")
+        User = get_user_model()
+        # Case-insensitive, so "John" and "john" can't both exist.
+        if User.objects.filter(username__iexact=username).exists():
+            raise InvalidUser(f"The username \u201c{username}\u201d is already taken")
+
+        user = User(username=username)
+        try:
+            validate_password(password, user)  # AUTH_PASSWORD_VALIDATORS in settings
+        except ValidationError as exc:
+            raise InvalidUser(" ".join(exc.messages).rstrip(".")) from None
+
+        with transaction.atomic():
+            user.set_password(password)
+            user.save()
+            Profile.objects.create(user=user, role=role)
+        return UserRow(user, Role(role))
 
     @staticmethod
     def _locked_reason(admin, target) -> str:

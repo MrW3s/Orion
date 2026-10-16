@@ -103,3 +103,60 @@ class HomePage(Fixture):
     def test_logged_out_visitor_is_sent_to_login(self):
         response = self.client.get(reverse("home"))
         self.assertRedirects(response, f"{reverse('login')}?next=/")
+
+
+class AdminCreatesUsers(Fixture):
+    GOOD = "orion-launch-2026"
+
+    def create(self, **fields):
+        form = {"username": "sam", "role": Role.PROJECT_MANAGER,
+                "password1": self.GOOD, "password2": self.GOOD}
+        form.update(fields)
+        return self.client.post(reverse("manage-users"), form, follow=True)
+
+    def test_admin_creates_user_who_can_log_in_with_that_role(self):
+        # Given an admin is on the Manage users page
+        self.client.force_login(self.admin)
+        # When they add a user with a password and a role
+        response = self.create()
+        # Then the user exists with that role and can log in
+        self.assertContains(response, "Created sam (Project manager).")
+        sam = User.objects.get(username="sam")
+        self.assertEqual(self.roles.role_of(sam), Role.PROJECT_MANAGER)
+        self.client.logout()
+        self.assertTrue(self.client.login(username="sam", password=self.GOOD))
+
+    def test_taken_username_is_rejected_ignoring_case(self):
+        self.client.force_login(self.admin)
+        response = self.create(username="John")
+        self.assertContains(response, "is already taken")
+        self.assertEqual(User.objects.filter(username__iexact="john").count(), 1)
+
+    def test_mismatched_passwords_are_rejected(self):
+        self.client.force_login(self.admin)
+        response = self.create(password2="something-else-2026")
+        self.assertContains(response, "The passwords don")
+        self.assertFalse(User.objects.filter(username="sam").exists())
+
+    def test_weak_password_is_rejected(self):
+        self.client.force_login(self.admin)
+        response = self.create(password1="pw", password2="pw")
+        self.assertContains(response, "too short")
+        self.assertFalse(User.objects.filter(username="sam").exists())
+
+    def test_non_admin_cannot_create_users(self):
+        self.client.force_login(self.eve)
+        response = self.client.post(reverse("manage-users"), {
+            "username": "sneaky", "role": Role.ADMIN, "password1": self.GOOD, "password2": self.GOOD,
+        })
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(User.objects.filter(username="sneaky").exists())
+
+    def test_user_can_change_their_own_password(self):
+        self.client.force_login(self.eve)
+        response = self.client.post(reverse("password-change"), {
+            "old_password": "pw", "new_password1": self.GOOD, "new_password2": self.GOOD,
+        }, follow=True)
+        self.assertContains(response, "Your password was changed.")
+        self.client.logout()
+        self.assertTrue(self.client.login(username="eve", password=self.GOOD))
