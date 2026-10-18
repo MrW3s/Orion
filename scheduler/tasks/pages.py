@@ -37,4 +37,7 @@ def schedule(request, project_id: int):
             messages.success(request, f"Added “{task.title}” to the schedule.")
             return redirect("project-schedule", project_id=project_id)
 
-    return render(request, "tasks/schedule.html", {"project": project, "tasks": tasks, "form": form})
+    return render(request, "tasks/schedule.html", {
+        "project": project, "tasks": tasks, "form": form,
+        "show_risk": service.can_view_risk(request.user),  # PM story: slack + critical path
+    })

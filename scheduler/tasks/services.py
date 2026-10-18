@@ -1,4 +1,4 @@
-"""Use cases for tasks: the two user stories in Sprint 1.
+"""Use cases for tasks: the two user stories in Sprint 1, plus the PM story.
 
     Story 1  add_task()       Given a team member is on the site,
                               when they add a new task (name, start and end date),
@@ -10,6 +10,14 @@
                               when they change a task's status,
                               then it is saved and shown immediately to
                               every relevant team member.
+
+    PM story risk_report()    Given a schedule with tasks, the project manager
+                              sees the task ordering and the critical path (the
+                              tasks that delay the project if they slip).
+             set_dependencies()
+                              When a dependency would create a cycle, it is
+                              flagged and rejected, so ordering and critical
+                              path are never calculated on a looping schedule.
 
 TaskService depends on its collaborators through the constructor
 (repository, scheduler, access, publisher) rather than creating them itself.
@@ -23,7 +31,8 @@ from datetime import date
 
 from django.db import transaction
 
-from common.errors import InvalidDependency, InvalidTask
+from accounts.services import RoleService
+from common.errors import InvalidDependency, InvalidTask, NotAllowed
 from notifications.events import ProjectEvent
 from notifications.publisher import EventPublisher
 from projects.access import ProjectAccess
@@ -50,13 +59,24 @@ class NewTask:
         return (self.end_date - self.start_date).days + 1
 
 
+@dataclass(frozen=True)
+class RiskReport:
+    """What the PM sees for one project (PM story)."""
+
+    order: list[Task]          # every task, in a valid dependency order
+    critical_path: list[Task]  # the tasks that delay the project end if they slip
+    project_end: date | None
+
+
 class TaskService:
     def __init__(self, repository: TaskRepository, scheduler: Scheduler,
-                 access: ProjectAccess, publisher: EventPublisher):
+                 access: ProjectAccess, publisher: EventPublisher,
+                 roles: RoleService | None = None):
         self._repo = repository
         self._scheduler = scheduler
         self._access = access
         self._publisher = publisher
+        self._roles = roles or RoleService()
 
     # ---- Viewing the schedule (used by both stories) -------------------
     def get_project(self, user, project_id: int):
@@ -109,6 +129,43 @@ class TaskService:
             ))
         return task
 
+    # ---- PM story ----------------------------------------------------
+    def can_view_risk(self, user) -> bool:
+        return self._roles.can(user, "view_risk")
+
+    def risk_report(self, user, project_id: int) -> RiskReport:
+        self._access.require_member(user, project_id)
+        if not self.can_view_risk(user):
+            raise NotAllowed("Only project managers and administrators can view schedule risk")
+
+        project = self._access.get_project(project_id)
+        tasks = self._repo.list_for_project(project_id)
+        # Saved data never has a cycle (set_dependencies rejects those), so this can't raise.
+        result = self._scheduler.compute(project.start_date, self._nodes(tasks))
+        by_id = {t.pk: t for t in tasks}
+        return RiskReport(
+            order=[by_id[t] for t in result.order],
+            critical_path=[by_id[t] for t in result.critical_path],
+            project_end=result.project_end,
+        )
+
+    def set_dependencies(self, user, task_id: int, depends_on_ids: list[int]) -> Task:
+        """Replace what a task depends on. A cycle is rejected and nothing changes."""
+        task = self._repo.get(task_id)
+        self._access.require_member(user, task.project_id)
+        self._check_dependencies_in_project(task.project_id, depends_on_ids)
+
+        with transaction.atomic():
+            self._repo.set_dependencies(task, depends_on_ids)
+            self._reschedule(task.project_id)  # raises InvalidDependency on a cycle -> rollback
+            transaction.on_commit(lambda: self._publisher.publish(
+                ProjectEvent.schedule_changed(task.project_id, reason="dependencies_changed",
+                                              task_id=task.pk)
+            ))
+
+        task.refresh_from_db()
+        return task
+
     # ---- helpers -----------------------------------------------------
     def _check_name_and_dates(self, project_id: int, new: NewTask) -> None:
         if not new.title.strip():
@@ -130,21 +187,29 @@ class TaskService:
         """Rebuild the project's dependency graph and store the new dates.
 
         This is the single place a "task committed to the schedule" triggers
-        the engine. The future PM story (cycle detection, ordering, critical
-        path for risk) plugs in here: anything new the engine returns in
-        ScheduleResult gets saved via the repository, with no new call sites.
+        the engine: cycle detection, ordering, dates, slack and critical path
+        all come back in one ScheduleResult and are saved via the repository.
         """
         project = self._access.get_project(project_id)
         tasks = self._repo.list_for_project(project_id)
-        nodes = [
+        try:
+            result = self._scheduler.compute(project.start_date, self._nodes(tasks))
+        except CycleError as exc:
+            # Raising inside transaction.atomic() rolls the change back, so the
+            # saved schedule (and its critical path) stays the last valid one.
+            titles = {t.pk: t.title for t in tasks}
+            loop = " → ".join(titles[n] for n in exc.nodes + exc.nodes[:1])
+            raise InvalidDependency(
+                f"Circular dependency: {loop}. Remove one of these dependencies "
+                f"before the schedule can be ordered."
+            ) from exc
+        self._repo.save_schedule(result)
+
+    @staticmethod
+    def _nodes(tasks: list[Task]) -> list[TaskNode]:
+        return [
             TaskNode(id=t.pk, duration_days=t.duration_days,
                      depends_on=frozenset(d.pk for d in t.depends_on.all()),
                      earliest_start=t.planned_start)
             for t in tasks
         ]
-        try:
-            result = self._scheduler.compute(project.start_date, nodes)
-        except CycleError as exc:
-            # Raising inside transaction.atomic() rolls the new task back.
-            raise InvalidDependency(str(exc)) from exc
-        self._repo.save_schedule(result)

@@ -1,6 +1,7 @@
 """Composition root: the ONE place that decides which concrete classes
 TaskService gets. Views call task_service(); tests build TaskService
 themselves with fakes (e.g. InMemoryPublisher)."""
+from accounts.services import RoleService
 from notifications.publisher import ChannelsPublisher
 from projects.access import ProjectAccess
 from scheduling import Scheduler
@@ -15,4 +16,5 @@ def task_service() -> TaskService:
         scheduler=Scheduler(),
         access=ProjectAccess(),
         publisher=ChannelsPublisher(),
+        roles=RoleService(),
     )

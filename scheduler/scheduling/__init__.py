@@ -5,7 +5,7 @@ schedule"):
   * build the dependency graph            graph.py
   * cycle detection + task ordering       graph.py
   * dates for each task (forward pass)    scheduler.py
-  * critical path / slack                 FUTURE: critical_path.py
+  * critical path / slack (backward pass) critical_path.py
 
 Other modules should import only what is listed here (the module's public
 interface), never reach into graph.py or scheduler.py internals directly.

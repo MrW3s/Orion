@@ -13,7 +13,7 @@ pip install -r requirements.txt
 python manage.py migrate
 python manage.py createsuperuser        # the first admin (can create projects at /projects/new/)
 python manage.py runserver              # serves HTTP and WebSockets (via daphne)
-python manage.py test accounts projects scheduling tasks  # 49 tests
+python manage.py test accounts projects scheduling tasks  # 63 tests
 ```
 
 ## API
@@ -23,6 +23,8 @@ python manage.py test accounts projects scheduling tasks  # 49 tests
 | GET | `/api/projects/{id}/tasks/` | view schedule |
 | POST | `/api/projects/{id}/tasks/` | 1: add task `{title, start_date, end_date, depends_on_ids, assignee_id, description}` (title and both dates required) |
 | PATCH | `/api/tasks/{id}/status/` | 2: `{status: "todo" \| "in_progress" \| "complete"}` |
+| GET | `/api/projects/{id}/risk/` | PM: task ordering, critical path and project end (project managers and admins) |
+| PUT | `/api/tasks/{id}/dependencies/` | PM: `{depends_on_ids}` replaces a task's dependencies; a cycle is rejected (400) and nothing changes |
 | WS | `/ws/projects/{id}/` | live events: `schedule.changed`, `task.status_changed` |
 
 ## Pages
@@ -36,7 +38,7 @@ Open http://127.0.0.1:8000/ and log in.
 | `/users/` | admins only | story 4: change any user's role (team member / project manager / administrator), and add new users with a password and role |
 | `/password/` | any user | change your own password |
 | `/projects/new/` | project managers, admins | create a project and pick its members (you're added automatically) |
-| `/projects/{id}/` | project members | story 1: the schedule, plus a form to add a task (name, start date, end date, assignee, dependencies). Updates live when anyone changes the project |
+| `/projects/{id}/` | project members | story 1: the schedule, plus a form to add a task (name, start date, end date, assignee, dependencies). Updates live when anyone changes the project. Project managers and admins also see each task's slack, with critical tasks marked |
 
 Superusers are always administrators. Non-admins who open `/users/` or try to change a role get "Access denied" (403).
 
@@ -50,7 +52,7 @@ config/          settings, urls, asgi (HTTP + WebSocket routing)
 accounts/        roles (story 4): Profile model, RoleService (who can use what), login/home/manage-users pages
 common/          domain errors + HTTP error mapping
 projects/        Project model, membership rules (access.py), New project page (services, forms, views)
-scheduling/      pure-Python engine: graph.py, scheduler.py   (no Django)
+scheduling/      pure-Python engine: graph.py, scheduler.py, critical_path.py   (no Django)
 tasks/           models, repository, services, serializers, views, container; pages + forms (schedule page)
 notifications/   events, publisher (interface + Channels impl), WebSocket consumer
 ```

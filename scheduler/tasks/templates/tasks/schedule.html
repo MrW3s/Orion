@@ -12,6 +12,7 @@
   <table>
     <tr>
       <th>Task</th><th>Status</th><th>Assignee</th><th>Start</th><th>End</th><th>Days</th><th>Depends on</th>
+      {% if show_risk %}<th>Slack</th>{% endif %}
     </tr>
     {% for task in tasks %}
     <tr>
@@ -32,6 +33,17 @@
       <td>
         {% for dep in task.depends_on.all %}{{ dep.title }}{% if not forloop.last %}, {% endif %}{% empty %}&mdash;{% endfor %}
       </td>
+      {% if show_risk %}
+      <td>
+        {% if task.is_critical %}
+          <span class="status status-critical" title="Any delay to this task delays the project">Critical</span>
+        {% elif task.slack_days is None %}
+          &mdash;
+        {% else %}
+          {{ task.slack_days }} day{{ task.slack_days|pluralize }}
+        {% endif %}
+      </td>
+      {% endif %}
     </tr>
     {% endfor %}
   </table>

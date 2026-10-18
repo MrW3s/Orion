@@ -13,7 +13,7 @@ class TaskSerializer(serializers.ModelSerializer):
         fields = [
             "id", "project", "title", "description", "assignee", "status",
             "duration_days", "planned_start", "depends_on", "scheduled_start", "scheduled_end",
-            "created_by", "updated_at",
+            "slack_days", "is_critical", "created_by", "updated_at",
         ]
         read_only_fields = fields
 
@@ -27,6 +27,10 @@ class CreateTaskSerializer(serializers.Serializer):
     depends_on_ids = serializers.ListField(
         child=serializers.IntegerField(), required=False, default=list,
     )
+
+
+class DependenciesSerializer(serializers.Serializer):
+    depends_on_ids = serializers.ListField(child=serializers.IntegerField(), allow_empty=True)
 
 
 class StatusUpdateSerializer(serializers.Serializer):

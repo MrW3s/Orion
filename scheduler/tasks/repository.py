@@ -45,12 +45,17 @@ class TaskRepository:
         return task
 
     def save_schedule(self, result: ScheduleResult) -> None:
-        # FUTURE: also persist slack / is_critical once the engine computes them.
         tasks = list(Task.objects.filter(pk__in=result.tasks.keys()))
         for task in tasks:
             slot = result.tasks[task.pk]
             task.scheduled_start, task.scheduled_end = slot.start, slot.end
-        Task.objects.bulk_update(tasks, ["scheduled_start", "scheduled_end"])
+            task.slack_days, task.is_critical = slot.slack_days, slot.is_critical
+        Task.objects.bulk_update(
+            tasks, ["scheduled_start", "scheduled_end", "slack_days", "is_critical"],
+        )
+
+    def set_dependencies(self, task: Task, depends_on_ids: Iterable[int]) -> None:
+        task.depends_on.set(list(depends_on_ids))
 
     def save_status(self, task: Task, status: str) -> Task:
         task.status = status

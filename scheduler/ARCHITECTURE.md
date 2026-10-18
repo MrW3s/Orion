@@ -25,8 +25,8 @@ Requests flow one way: **controller → service → (repository | engine | acces
 
 | Module | Single responsibility (cohesion) | Hides this design decision (information hiding) |
 |---|---|---|
-| `scheduling/` | Given tasks and dependencies, work out the schedule (graph, cycle detection, ordering, dates) | The scheduling algorithm. **Imports nothing from Django** |
-| `tasks/` | The task use cases (stories 1 & 2) and their API | How tasks are stored and which concrete collaborators are used |
+| `scheduling/` | Given tasks and dependencies, work out the schedule (graph, cycle detection, ordering, dates, slack, critical path) | The scheduling algorithm. **Imports nothing from Django** |
+| `tasks/` | The task use cases (stories 1 & 2, PM story) and their API | How tasks are stored and which concrete collaborators are used |
 | `accounts/` | Users' roles and the pages for managing them (story 4) | Which role may use which feature (`ROLE_FEATURES` in `services.py`) |
 | `projects/` | Projects, who belongs to them, and creating them | The membership rules |
 | `notifications/` | Telling connected members that something changed | The real-time transport (Channels/WebSockets) |
@@ -57,7 +57,8 @@ Requests flow one way: **controller → service → (repository | engine | acces
 ```
 
 * **No cycles** between modules (checked: `scheduling` and `common` import nothing from the others).
-* **`projects` → `accounts`:** creating a project asks `RoleService.can(user, "create_projects")`;
+* **`projects` → `accounts` and `tasks` → `accounts`:** creating a project asks
+  `RoleService.can(user, "create_projects")`, and the PM risk view asks `can(user, "view_risk")`.
   `accounts` imports nothing from `projects` or `tasks`, so roles stay at the bottom with `common`.
 * **`tasks` → `scheduling`: data coupling only.** The service passes plain `TaskNode` values
   and gets a plain `ScheduleResult` back. The engine never sees a Django model, so it can be
@@ -99,26 +100,41 @@ Requests flow one way: **controller → service → (repository | engine | acces
 
 Relationships: Project 1─* Task · Project *─* User · Task *─* Task (dependency).
 
-## 6. Built for the next story: critical path for the PM
+## 6. PM story: dependency graph, cycles, ordering, critical path
 
 > *As a project manager, I want the system to build a dependency graph … cycle detection,
 > task ordering, and the critical path … to identify scheduling risks.*
 
-Already in place:
-* **Dependency graph**, **cycle detection** and **task ordering**: `scheduling/graph.py`
-  (`topological_order()` raises `CycleError`). `ScheduleResult.order` exposes the ordering.
-* **Earliest start/finish** (the CPM forward pass): `scheduling/scheduler.py`.
-* **Single trigger point:** every time a task is committed, `TaskService._reschedule()` runs the engine.
+Every time a task or a dependency is committed, `TaskService._reschedule()` runs the engine once:
 
-To add later, without changing existing callers:
-1. `scheduling/critical_path.py`: backward pass → latest start/finish → `slack = latest − earliest`; slack 0 ⇒ critical.
-2. Add `slack_days`, `is_critical` to `ScheduledTask` and `critical_path` to `ScheduleResult`
-   (spots are marked `FUTURE:` in the code).
-3. Add `slack_days` / `is_critical` columns to `Task` and save them in `TaskRepository.save_schedule()`.
-4. A PM-only endpoint (e.g. `GET /api/projects/{id}/risk/`) that reads them, guarded by `RoleService().can(user, "view_risk")` from `accounts/` (project managers and admins).
+| Piece | Where | What it does |
+|---|---|---|
+| Dependency graph | `scheduling/graph.py` | `DependencyGraph`, built by `Scheduler._build_graph()` |
+| Cycle detection | `graph.py` `topological_order()` | Raises `CycleError` whose `nodes` are **only the loop** (`_find_cycle()`), not tasks downstream of it |
+| Task ordering | `graph.py` (Kahn's algorithm) | `ScheduleResult.order` |
+| Earliest start/finish | `scheduling/scheduler.py` | CPM forward pass |
+| Latest start/finish, slack | `scheduling/critical_path.py` | CPM backward pass; slack 0 ⇒ critical |
+| Critical path | `scheduler.py` | `ScheduleResult.critical_path`: the critical tasks in dependency order |
 
-Because the engine is isolated behind `ScheduleResult`, steps 1–2 don't touch Django at all,
-and `services.py` doesn't change.
+**Storage:** `Task.slack_days` and `Task.is_critical` are written by `TaskRepository.save_schedule()`,
+next to the scheduled dates (migration `0003`).
+
+**Cycles are rejected, not stored.** A change that creates a cycle raises `InvalidDependency`
+inside the transaction, so it rolls back: the dependency isn't saved, the last valid dates and
+critical path stay, and no `schedule.changed` event goes out. The error names the loop by task
+title (e.g. *Circular dependency: Design → API → Design*). Because saved data can never contain a
+cycle, ordering and critical path are never calculated on a looping schedule.
+
+**Flow (risk view):** `GET /api/projects/{id}/risk/` → `views.ProjectRiskView` → `TaskService.risk_report`
+1. Check membership, then `RoleService.can(user, "view_risk")` (project managers and admins), else `NotAllowed` (403).
+2. Run the engine on the saved tasks and return the ordering, critical path and project end.
+
+**Flow (change dependencies):** `PUT /api/tasks/{id}/dependencies/` → `views.TaskDependenciesView` →
+`TaskService.set_dependencies`: same checks as story 1, then the same transaction-and-reschedule
+path, so a cycle is rejected as above.
+
+The schedule page (`/projects/{id}/`) shows a **Slack** column to users with `view_risk`, with
+critical tasks marked.
 
 ## 7. Design principles applied
 
@@ -127,4 +143,4 @@ and `services.py` doesn't change.
 * **Information hiding:** each module hides a decision likely to change (algorithm, storage, permissions, transport).
 * **Separation of concerns:** HTTP, business rules, persistence and real-time are in separate files.
 * **DRY:** all membership checks go through `ProjectAccess`; all task queries through `TaskRepository`.
-* **YAGNI:** critical path and notifications other than real-time are left as marked extension points, not built yet.
+* **YAGNI:** notifications other than real-time are left as an extension point, not built yet.
