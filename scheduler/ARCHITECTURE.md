@@ -134,7 +134,8 @@ cycle, ordering and critical path are never calculated on a looping schedule.
 path, so a cycle is rejected as above.
 
 The schedule page (`/projects/{id}/`) shows a **Slack** column to users with `view_risk`, with
-critical tasks marked.
+critical tasks marked, and has an **Edit dependencies** form (any member) that calls
+`set_dependencies()`, so a cycle can be tried and flagged from the UI as well as the API.
 
 ## 7. Design principles applied
 

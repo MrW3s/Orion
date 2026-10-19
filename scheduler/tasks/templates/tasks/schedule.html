@@ -93,6 +93,43 @@
   </form>
 </div>
 
+{% if tasks|length > 1 %}
+<div class="card" id="edit-dependencies">
+  <h2>Edit dependencies</h2>
+  {% if deps_form.errors %}
+    <div class="msg msg-error">
+      The dependencies weren't changed. {% for error in deps_form.non_field_errors %}{{ error }}{% empty %}Fix the fields marked below.{% endfor %}
+    </div>
+  {% endif %}
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <div class="field">
+      <label for="{{ deps_form.task_id.id_for_label }}">{{ deps_form.task_id.label }}</label>
+      {{ deps_form.task_id }}{{ deps_form.task_id.errors }}
+    </div>
+    <div class="field checks">
+      <label>{{ deps_form.depends_on_ids.label }}</label>
+      {{ deps_form.depends_on_ids }}{{ deps_form.depends_on_ids.errors }}
+    </div>
+    <button>Save dependencies</button>
+  </form>
+</div>
+{{ current_deps|json_script:"current-deps" }}
+<script>
+  // When a task is picked, tick what it depends on now, so the form starts from its current state.
+  (function () {
+    const deps = JSON.parse(document.getElementById("current-deps").textContent);
+    const form = document.getElementById("edit-dependencies");
+    form.querySelector("select").addEventListener("change", function () {
+      const current = deps[this.value] || [];
+      form.querySelectorAll("input[type=checkbox]").forEach(function (box) {
+        box.checked = current.includes(Number(box.value));
+      });
+    });
+  })();
+</script>
+{% endif %}
+
 <script>
   // "Viewable by all relevant team members": when anyone changes this project,
   // refresh the schedule table in place. The form keeps whatever you've typed.

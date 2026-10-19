@@ -345,3 +345,50 @@ class PMStoryCriticalPath(Fixture):
         self.assertContains(self.client.get(url), "Critical")
         self.client.force_login(self.alice)
         self.assertNotContains(self.client.get(url), "<th>Slack</th>")
+
+
+class PMStoryDependenciesPage(TestCase):
+    """The "Edit dependencies" form on /projects/<id>/, where a cycle can be tried from the UI."""
+
+    def setUp(self):
+        self.alice = User.objects.create_user("alice", password="pw")
+        self.project = Project.objects.create(name="Website redesign", start_date=START)
+        self.project.members.add(self.alice)
+        self.url = reverse("project-schedule", args=[self.project.pk])
+        self.client.force_login(self.alice)
+
+    def add(self, title, days=1, deps=()):
+        self.client.post(self.url, {"title": title, "start_date": "2026-10-19",
+                                    "end_date": (START + timedelta(days=days - 1)).isoformat(),
+                                    "depends_on_ids": list(deps)})
+        return Task.objects.get(title=title)
+
+    def edit(self, task, deps):
+        return self.client.post(self.url, {"deps-task_id": task.pk,
+                                           "deps-depends_on_ids": [d.pk for d in deps]}, follow=True)
+
+    def test_card_hidden_until_there_are_two_tasks(self):
+        self.add("Design")
+        self.assertNotContains(self.client.get(self.url), "Edit dependencies")
+        self.add("Build")
+        self.assertContains(self.client.get(self.url), "Edit dependencies")
+
+    def test_changing_dependencies_reschedules(self):
+        design, build = self.add("Design", days=3), self.add("Build")
+        response = self.edit(build, [design])
+        self.assertContains(response, "Updated what “Build” depends on.")
+        build.refresh_from_db()
+        self.assertEqual(list(build.depends_on.all()), [design])
+        self.assertEqual(build.scheduled_start, date(2026, 10, 22))  # after Design's 3 days
+
+    def test_cycle_is_flagged_on_the_page_and_nothing_changes(self):
+        design = self.add("Design")
+        build = self.add("Build", deps=[design.pk])
+        # When Design is made to wait for Build, which already waits for Design
+        response = self.edit(design, [build])
+        # Then the page flags the circular dependency...
+        self.assertContains(response, "The dependencies weren")
+        self.assertContains(response, "Circular dependency: Design → Build → Design")
+        self.assertNotContains(response, "The task wasn")  # the Add a task form isn't affected
+        # ...and the dependency isn't saved
+        self.assertEqual(list(design.depends_on.all()), [])
