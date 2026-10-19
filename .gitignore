@@ -1,0 +1,15 @@
+# Editor / IDE settings (each person's own)
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local development database (migrations recreate it)
+*.sqlite3
+
+# macOS
+.DS_Store

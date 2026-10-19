@@ -26,3 +26,19 @@ class AddTaskForm(forms.Form):
             [("", "Unassigned")] + [(u.pk, u.get_username()) for u in members]
         )
         self.fields["depends_on_ids"].choices = [(t.pk, t.title) for t in tasks]
+
+
+class EditDependenciesForm(forms.Form):
+    """Change what an existing task depends on (PM story). Uses prefix="deps" on the
+    page so its fields don't clash with the "Add a task" form's."""
+
+    task_id = forms.TypedChoiceField(label="Task", coerce=int,
+                                     error_messages={"required": "Pick a task."})
+    depends_on_ids = forms.TypedMultipleChoiceField(label="Depends on", coerce=int, required=False,
+                                                    widget=forms.CheckboxSelectMultiple)
+
+    def __init__(self, *args, tasks=(), **kwargs):
+        super().__init__(*args, **kwargs)
+        choices = [(t.pk, t.title) for t in tasks]
+        self.fields["task_id"].choices = [("", "Choose a task")] + choices
+        self.fields["depends_on_ids"].choices = choices

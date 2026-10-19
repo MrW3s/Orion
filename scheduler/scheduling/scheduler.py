@@ -8,19 +8,17 @@ Like graph.py, this module has no Django imports. The tasks app hands it
 plain TaskNode values and gets a plain ScheduleResult back, so the only
 coupling between the two is that data (data coupling, the loosest kind).
 
-FUTURE (PM critical-path story): the forward pass here already gives each
-task's earliest start/finish. Critical path = add a backward pass in a new
-module, critical_path.py (latest start/finish -> slack; slack == 0 means
-critical). Its output goes into the extra ScheduleResult fields marked
-below. Because callers only depend on ScheduleResult, adding those fields
-doesn't change TaskService or the API.
+After the forward pass, compute() runs the backward pass in critical_path.py
+(PM critical-path story) to give each task its slack, and lists the
+critical tasks (slack 0) in ScheduleResult.critical_path.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from typing import Hashable, Iterable
 
+from .critical_path import analyse
 from .graph import DependencyGraph
 
 TaskId = Hashable
@@ -41,7 +39,8 @@ class ScheduledTask:
     id: TaskId
     start: date  # earliest start (forward pass)
     end: date    # earliest finish, inclusive: a 1-day task starts and ends the same day
-    # FUTURE: slack_days: int = 0 ; is_critical: bool = False
+    slack_days: int = 0        # days it can slip without delaying the project end
+    is_critical: bool = False  # slack 0: any delay here delays the whole project
 
 
 @dataclass(frozen=True)
@@ -50,7 +49,7 @@ class ScheduleResult:
 
     order: list[TaskId]                 # valid task ordering (topological)
     tasks: dict[TaskId, ScheduledTask]  # dates per task
-    # FUTURE: critical_path: list[TaskId] = field(default_factory=list)
+    critical_path: list[TaskId] = field(default_factory=list)  # critical tasks, in order
 
     @property
     def project_end(self) -> date | None:
@@ -72,8 +71,13 @@ class Scheduler:
             end = start + timedelta(days=max(task.duration_days, 1) - 1)
             slots[task_id] = ScheduledTask(task_id, start, end)
 
-        # FUTURE: critical = critical_path.analyse(graph, order, tasks_by_id, slots)
-        return ScheduleResult(order=order, tasks=slots)
+        # Backward pass: how far each task can slip before the project end moves.
+        project_end = max((s.end for s in slots.values()), default=project_start)
+        for task_id, (slack, critical) in analyse(graph, order, tasks_by_id, slots, project_end).items():
+            slots[task_id] = replace(slots[task_id], slack_days=slack, is_critical=critical)
+
+        critical_path = [t for t in order if slots[t].is_critical]
+        return ScheduleResult(order=order, tasks=slots, critical_path=critical_path)
 
     @staticmethod
     def _build_graph(tasks_by_id: dict[TaskId, TaskNode]) -> DependencyGraph:

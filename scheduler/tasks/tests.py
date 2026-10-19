@@ -250,3 +250,145 @@ class Story1SchedulePage(TestCase):
 
     def test_home_links_to_project_schedule(self):
         self.assertContains(self.client.get(reverse("home")), self.url)
+
+
+class PMStoryCriticalPath(Fixture):
+    """PM story: dependency graph -> cycle detection, task ordering, critical path."""
+
+    def setUp(self):
+        super().setUp()
+        from accounts.models import Profile, Role
+        self.carol = User.objects.create_user("carol", password="pw")  # the project manager
+        Profile.objects.create(user=self.carol, role=Role.PROJECT_MANAGER)
+        self.project.members.add(self.carol)
+
+        add = lambda title, days, deps=(): self.service.add_task(
+            self.alice, self.project.pk, new_task(title, days=days, depends_on_ids=list(deps)))
+        self.design = add("Design", 2)                                  # Oct 19-20
+        self.db = add("Database", 5)                                    # Oct 19-23
+        self.api = add("API", 3, [self.design.pk, self.db.pk])          # Oct 24-26
+
+    def refresh(self):
+        for task in (self.design, self.db, self.api):
+            task.refresh_from_db()
+
+    def test_committing_tasks_calculates_ordering_and_critical_path(self):
+        # Given a schedule with more than one task; when a team member commits tasks
+        self.refresh()
+        # Then every task gets its slack, and the ones that delay the project are critical
+        self.assertEqual((self.design.slack_days, self.design.is_critical), (3, False))
+        self.assertEqual((self.db.slack_days, self.db.is_critical), (0, True))
+        self.assertEqual((self.api.slack_days, self.api.is_critical), (0, True))
+        # ...and the PM sees the task ordering and critical path
+        report = self.service.risk_report(self.carol, self.project.pk)
+        self.assertEqual(report.order[-1], self.api)
+        self.assertEqual(report.critical_path, [self.db, self.api])
+        self.assertEqual(report.project_end, date(2026, 10, 26))
+
+    def test_cycle_is_flagged_and_schedule_left_unchanged(self):
+        before = len(self.publisher.events)
+        # When a dependency is committed that creates a cycle (Design waits for API)
+        from common.errors import InvalidDependency
+        with self.assertRaises(InvalidDependency) as ctx:
+            self.service.set_dependencies(self.alice, self.design.pk, [self.api.pk])
+        # Then the circular dependency is flagged, naming the tasks in the loop...
+        self.assertIn("Circular dependency", str(ctx.exception))
+        self.assertIn("Design", str(ctx.exception))
+        self.assertIn("API", str(ctx.exception))
+        self.assertNotIn("Database", str(ctx.exception))  # depends on nothing in the loop
+        # ...and nothing is recalculated: the dependency isn't saved, the dates and
+        # critical path are the last valid ones, and nobody is told the schedule changed
+        self.refresh()
+        self.assertEqual(list(self.design.depends_on.all()), [])
+        self.assertEqual(self.design.scheduled_start, date(2026, 10, 19))
+        self.assertEqual((self.design.slack_days, self.api.is_critical), (3, True))
+        self.assertEqual(len(self.publisher.events), before)
+
+    def test_changing_dependencies_recalculates_critical_path(self):
+        # API now waits only for Design: Design -> API (5 days) ties with Database
+        # (5 days), so Design loses its slack and joins the critical path
+        self.service.set_dependencies(self.alice, self.api.pk, [self.design.pk])
+        report = self.service.risk_report(self.carol, self.project.pk)
+        self.assertEqual(set(report.critical_path), {self.design, self.db, self.api})
+        self.assertEqual(report.project_end, date(2026, 10, 23))
+        self.assertEqual(self.publisher.events[-1].data["reason"], "dependencies_changed")
+
+    def test_only_project_managers_and_admins_see_risk(self):
+        from common.errors import NotAllowed
+        with self.assertRaises(NotAllowed):
+            self.service.risk_report(self.alice, self.project.pk)
+
+    def test_risk_api(self):
+        client = APIClient()
+        url = f"/api/projects/{self.project.pk}/risk/"
+        client.force_authenticate(self.alice)  # team member
+        self.assertEqual(client.get(url).status_code, 403)
+
+        client.force_authenticate(self.carol)
+        body = client.get(url).json()
+        self.assertEqual(body["critical_path"], [self.db.pk, self.api.pk])
+        self.assertEqual(body["project_end"], "2026-10-26")
+        self.assertEqual(len(body["order"]), 3)
+        self.assertEqual(body["tasks"][-1]["is_critical"], True)
+
+    def test_dependencies_api_rejects_cycle(self):
+        client = APIClient()
+        client.force_authenticate(self.alice)
+        r = client.put(f"/api/tasks/{self.design.pk}/dependencies/",
+                       {"depends_on_ids": [self.api.pk]}, format="json")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("Circular dependency", r.json()["detail"])
+
+    def test_schedule_page_shows_slack_to_project_managers_only(self):
+        url = reverse("project-schedule", args=[self.project.pk])
+        self.client.force_login(self.carol)
+        self.assertContains(self.client.get(url), "Critical")
+        self.client.force_login(self.alice)
+        self.assertNotContains(self.client.get(url), "<th>Slack</th>")
+
+
+class PMStoryDependenciesPage(TestCase):
+    """The "Edit dependencies" form on /projects/<id>/, where a cycle can be tried from the UI."""
+
+    def setUp(self):
+        self.alice = User.objects.create_user("alice", password="pw")
+        self.project = Project.objects.create(name="Website redesign", start_date=START)
+        self.project.members.add(self.alice)
+        self.url = reverse("project-schedule", args=[self.project.pk])
+        self.client.force_login(self.alice)
+
+    def add(self, title, days=1, deps=()):
+        self.client.post(self.url, {"title": title, "start_date": "2026-10-19",
+                                    "end_date": (START + timedelta(days=days - 1)).isoformat(),
+                                    "depends_on_ids": list(deps)})
+        return Task.objects.get(title=title)
+
+    def edit(self, task, deps):
+        return self.client.post(self.url, {"deps-task_id": task.pk,
+                                           "deps-depends_on_ids": [d.pk for d in deps]}, follow=True)
+
+    def test_card_hidden_until_there_are_two_tasks(self):
+        self.add("Design")
+        self.assertNotContains(self.client.get(self.url), "Edit dependencies")
+        self.add("Build")
+        self.assertContains(self.client.get(self.url), "Edit dependencies")
+
+    def test_changing_dependencies_reschedules(self):
+        design, build = self.add("Design", days=3), self.add("Build")
+        response = self.edit(build, [design])
+        self.assertContains(response, "Updated what “Build” depends on.")
+        build.refresh_from_db()
+        self.assertEqual(list(build.depends_on.all()), [design])
+        self.assertEqual(build.scheduled_start, date(2026, 10, 22))  # after Design's 3 days
+
+    def test_cycle_is_flagged_on_the_page_and_nothing_changes(self):
+        design = self.add("Design")
+        build = self.add("Build", deps=[design.pk])
+        # When Design is made to wait for Build, which already waits for Design
+        response = self.edit(design, [build])
+        # Then the page flags the circular dependency...
+        self.assertContains(response, "The dependencies weren")
+        self.assertContains(response, "Circular dependency: Design → Build → Design")
+        self.assertNotContains(response, "The task wasn")  # the Add a task form isn't affected
+        # ...and the dependency isn't saved
+        self.assertEqual(list(design.depends_on.all()), [])

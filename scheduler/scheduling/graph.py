@@ -13,11 +13,17 @@ NodeId = Hashable
 
 
 class CycleError(ValueError):
-    """Raised when the dependencies form a loop (A needs B, B needs A)."""
+    """Raised when the dependencies form a loop (A needs B, B needs A).
+
+    `nodes` is the loop itself, in order: each one depends on the next, and
+    the last depends on the first. Tasks that merely sit downstream of the
+    loop are left out, so the user sees exactly which dependency to remove.
+    """
 
     def __init__(self, nodes: Iterable[NodeId]):
         self.nodes = list(nodes)
-        super().__init__(f"Dependency cycle detected among: {self.nodes}")
+        loop = " -> ".join(map(str, self.nodes + self.nodes[:1]))
+        super().__init__(f"Dependency cycle detected: {loop}")
 
 
 class DependencyGraph:
@@ -39,6 +45,9 @@ class DependencyGraph:
     def predecessors(self, node: NodeId) -> set[NodeId]:
         return set(self._predecessors.get(node, ()))
 
+    def successors(self, node: NodeId) -> set[NodeId]:
+        return set(self._successors.get(node, ()))
+
     def topological_order(self) -> list[NodeId]:
         """Kahn's algorithm. Raises CycleError if the graph is not a DAG."""
         in_degree = {n: len(self._predecessors.get(n, ())) for n in self._nodes}
@@ -55,5 +64,21 @@ class DependencyGraph:
                     queue.append(succ)
 
         if len(order) != len(self._nodes):
-            raise CycleError(n for n, d in in_degree.items() if d > 0)
+            raise CycleError(self._find_cycle(self._nodes - set(order)))
         return order
+
+    def _find_cycle(self, stuck: set[NodeId]) -> list[NodeId]:
+        """Return one loop among the nodes Kahn's algorithm couldn't order.
+
+        Every stuck node still waits on at least one stuck predecessor (that's
+        why it got stuck), so following predecessors from any of them must
+        eventually revisit a node. The path from that node onwards is a loop.
+        """
+        path: list[NodeId] = []
+        position: dict[NodeId, int] = {}
+        node = min(stuck, key=str)
+        while node not in position:
+            position[node] = len(path)
+            path.append(node)
+            node = min((p for p in self._predecessors[node] if p in stuck), key=str)
+        return path[position[node]:]

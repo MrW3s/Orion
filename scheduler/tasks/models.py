@@ -38,6 +38,8 @@ class Task(models.Model):
     # Written by the scheduling engine, never by users directly.
     scheduled_start = models.DateField(null=True, blank=True)
     scheduled_end = models.DateField(null=True, blank=True)
+    slack_days = models.IntegerField(null=True, blank=True)  # days it can slip without delaying the project
+    is_critical = models.BooleanField(default=False)  # on the critical path (slack 0)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
