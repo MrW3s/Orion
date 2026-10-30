@@ -36,13 +36,16 @@ FEATURES = {
     "create_projects": "Create projects",
     "view_risk": "Dependency graph and critical path",
     "manage_users": "Manage user roles",
+    "set_project_owner": "Set which client owns a project",
+    "client_dashboard": "Your project's progress, and notes for the team",
 }
 
 ROLE_FEATURES = {
     Role.TEAM_MEMBER: {"view_schedule", "add_task", "update_status"},
     Role.PROJECT_MANAGER: {"view_schedule", "add_task", "update_status", "create_projects",
                            "view_risk"},
-    Role.ADMIN: set(FEATURES),
+    Role.ADMIN: set(FEATURES) - {"client_dashboard"},  # admins use the team's pages
+    Role.CLIENT: {"client_dashboard"},  # no "view_schedule": the team's pages stay closed
 }
 
 

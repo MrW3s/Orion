@@ -57,6 +57,10 @@
     .status-in_progress { background: #fff4d6; color: #8a5a00; }
     .status-complete { background: var(--ok-bg); color: var(--ok-text); }
     .status-critical { background: var(--err-bg); color: var(--err-text); }
+    .progress { height: 10px; margin: 4px 0 8px; border-radius: 999px; background: #eef0f3; overflow: hidden; }
+    .progress > div { height: 100%; background: var(--ok-text); }
+    .note { padding: 10px 0; border-bottom: 1px solid var(--border); white-space: pre-line; }
+    .note:last-child { border-bottom: 0; }
   </style>
 </head>
 <body>
@@ -64,7 +68,8 @@
   <header>
     <span class="brand">Orion</span>
     <a href="{% url 'home' %}">Home</a>
-    {% if is_admin %}<a href="{% url 'manage-users' %}">Manage users</a>{% endif %}
+    {% if is_admin %}<a href="{% url 'manage-users' %}">Manage users</a>
+    <a href="{% url 'manage-projects' %}">Projects</a>{% endif %}
     <span class="spacer"></span>
     <span>{{ user.username }}</span>
     <a href="{% url 'password-change' %}">Change password</a>

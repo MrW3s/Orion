@@ -1,0 +1,17 @@
+{% extends "accounts/base.html" %}
+
+{% block title %}Your projects · Orion{% endblock %}
+
+{% block content %}
+<h1>Your projects</h1>
+
+<div class="card">
+  {% for project in projects %}
+    {% if forloop.first %}<table><tr><th>Project</th><th>Starts</th></tr>{% endif %}
+    <tr><td><a href="{% url 'client-project' project.pk %}">{{ project.name }}</a></td><td>{{ project.start_date|date:"M j, Y" }}</td></tr>
+    {% if forloop.last %}</table>{% endif %}
+  {% empty %}
+    <p class="muted">You don't have a project yet. It will appear here once the team sets it up for you.</p>
+  {% endfor %}
+</div>
+{% endblock %}

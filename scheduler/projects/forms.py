@@ -14,3 +14,15 @@ class NewProjectForm(forms.Form):
     def __init__(self, *args, users=(), **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["member_ids"].choices = [(u.pk, u.get_username()) for u in users]
+
+
+class OwnerForm(forms.Form):
+    """One row of the admin Projects page: which client owns the project."""
+
+    owner_id = forms.TypedChoiceField(coerce=int, required=False, empty_value=None)
+
+    def __init__(self, *args, owners=(), **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["owner_id"].choices = (
+            [("", "No owner")] + [(u.pk, u.get_username()) for u in owners]
+        )

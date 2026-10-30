@@ -46,4 +46,16 @@ class InvalidUser(DomainError):
 
 
 class InvalidProject(DomainError):
-    """Project data breaks a rule (e.g. no name)."""
+    """Project data breaks a rule (e.g. no name, an owner who isn't a client)."""
+
+
+class ProjectNotFound(DomainError):
+    pass
+
+
+class ProjectOutOfScope(DomainError):
+    """A client asked for a project they don't own (client dashboard story)."""
+
+
+class InvalidNote(DomainError):
+    """A client's note for the team breaks a rule (e.g. it's empty)."""

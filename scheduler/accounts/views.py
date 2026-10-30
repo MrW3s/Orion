@@ -4,6 +4,7 @@ Like tasks/views.py, each view calls the service and renders the result.
 The rules themselves live in services.py.
 
     GET  /                     home: your role and what it lets you access
+                               (clients go straight to their dashboard)
     GET  /users/               admins only: every user's role + the permission table
     POST /users/               admins only: create a user (username, password, role)
     POST /users/<id>/role/     admins only: change one user's role
@@ -28,6 +29,8 @@ from .services import RoleService
 @login_required
 def home(request):
     roles = RoleService()
+    if roles.can(request.user, "client_dashboard"):
+        return redirect("client-dashboard")  # clients get their own, view-only dashboard
     return render(request, "accounts/home.html", {
         "role": roles.role_of(request.user),
         "features": roles.features_of(request.user),

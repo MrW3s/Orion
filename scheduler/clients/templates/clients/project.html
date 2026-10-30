@@ -1,0 +1,62 @@
+{% extends "accounts/base.html" %}
+
+{% block title %}{{ progress.name }} · Orion{% endblock %}
+
+{% block content %}
+<h1>{{ progress.name }}</h1>
+<p class="muted">
+  Project starts {{ progress.start_date|date:"M j, Y" }}{% if progress.expected_end %}
+  · expected to finish {{ progress.expected_end|date:"M j, Y" }}{% endif %}
+</p>
+
+<div class="card">
+  <h2>Progress</h2>
+  {% if progress.tasks %}
+  <div class="progress" role="progressbar" aria-label="Project progress" aria-valuenow="{{ progress.percent }}"
+       aria-valuemin="0" aria-valuemax="100"><div style="width: {{ progress.percent }}%"></div></div>
+  <p>
+    <strong>{{ progress.percent }}%</strong> ·
+    {{ progress.complete }} of {{ progress.tasks|length }} task{{ progress.tasks|length|pluralize }} complete{% if progress.in_progress %}
+    · {{ progress.in_progress }} in progress{% endif %}
+  </p>
+  <table>
+    <tr><th>Task</th><th>Status</th><th>Start</th><th>End</th></tr>
+    {% for task in progress.tasks %}
+    <tr>
+      <td>{{ task.title }}</td>
+      <td><span class="status status-{{ task.status }}">{{ task.status_label }}</span></td>
+      <td>{{ task.start|date:"M j"|default:"&mdash;" }}</td>
+      <td>{{ task.end|date:"M j"|default:"&mdash;" }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">The team hasn't scheduled any work yet. Check back soon.</p>
+  {% endif %}
+</div>
+
+<div class="card" id="notes">
+  <h2>Notes for the team</h2>
+  <p class="small muted">Questions, feedback or new requests. The people working on your project see these on their schedule.</p>
+  {% if form.errors %}
+    <div class="msg msg-error">
+      Your note wasn't sent. {% for error in form.non_field_errors %}{{ error }}.{% empty %}Fix the field marked below.{% endfor %}
+    </div>
+  {% endif %}
+  <form method="post" action="#notes" novalidate>
+    {% csrf_token %}
+    <div class="field">
+      <label for="{{ form.text.id_for_label }}">{{ form.text.label }}</label>
+      {{ form.text }}{{ form.text.errors }}
+    </div>
+    <button>Send note</button>
+  </form>
+
+  {% if progress.notes %}
+  <h2 style="margin-top: 20px">Notes you've left</h2>
+  {% for note in progress.notes %}
+    <div class="note">{{ note.text }}<div class="small muted">{{ note.created_at|date:"M j, Y, g:i A" }}</div></div>
+  {% endfor %}
+  {% endif %}
+</div>
+{% endblock %}
