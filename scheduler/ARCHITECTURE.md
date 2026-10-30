@@ -28,7 +28,8 @@ Requests flow one way: **controller → service → (repository | engine | acces
 | `scheduling/` | Given tasks and dependencies, work out the schedule (graph, cycle detection, ordering, dates, slack, critical path) | The scheduling algorithm. **Imports nothing from Django** |
 | `tasks/` | The task use cases (stories 1 & 2, PM story) and their API | How tasks are stored and which concrete collaborators are used |
 | `accounts/` | Users' roles and the pages for managing them (story 4) | Which role may use which feature (`ROLE_FEATURES` in `services.py`) |
-| `projects/` | Projects, who belongs to them, and creating them | The membership rules |
+| `projects/` | Projects, who belongs to them (members, owner), creating them, client notes | The membership and ownership rules (`access.py`) |
+| `clients/` | The client's view-only dashboard: progress, and notes for the team | Which project details a client may see (`ClientProject` / `ClientTask` in `services.py`) |
 | `notifications/` | Telling connected members that something changed | The real-time transport (Channels/WebSockets) |
 | `common/` | Shared domain errors and their HTTP mapping | Mapping from business errors to HTTP status codes |
 | `config/` | Settings, URL routing, ASGI entry point | Deployment details |
@@ -49,12 +50,19 @@ Requests flow one way: **controller → service → (repository | engine | acces
 ```
             config
               │
+           clients ──────────────────────────────┐
+              │                                  │
+              ▼                                  ▼
             tasks ─────────────┬──────────────┬─────────────┐
               │                │              │             │
               ▼                ▼              ▼             ▼
          scheduling      notifications ──► projects ──► common
          (pure Python)
 ```
+
+* **`clients` → `tasks`, `projects`:** the dashboard reads tasks through `TaskRepository` and
+  checks ownership through `ProjectAccess`. Nothing imports `clients`; the schedule page only
+  redirects to its URL by name, so there's no cycle.
 
 * **No cycles** between modules (checked: `scheduling` and `common` import nothing from the others).
 * **`projects` → `accounts` and `tasks` → `accounts`:** creating a project asks
@@ -95,10 +103,12 @@ Requests flow one way: **controller → service → (repository | engine | acces
 | Entity | Fields | Rules |
 |---|---|---|
 | **User** | Django built-in (`username`, `password`, …) | |
-| **Project** | `name`, `start_date`, `members` (M:N → User) | Only members can view/change its tasks |
+| **Project** | `name`, `start_date`, `members` (M:N → User), `owner` (FK User, optional) | Only members can view/change its tasks; members need `view_schedule`, so clients never count as members. The owner is a client, set by an admin |
+| **ClientNote** | `project` (FK), `author` (FK User), `text`, `created_at` | Only the project's owner can leave one; the project's members see them |
 | **Task** | `project` (FK), `title`, `description`, `assignee` (FK User, optional), `created_by`, `planned_start` (the start date the user picked), `duration_days` (≥ 1), `status` (`todo` = "Not started" / `in_progress` / `complete`), `depends_on` (M:N → Task), `scheduled_start`, `scheduled_end`, timestamps | Dependencies must be in the same project and form no cycle; assignee must be a member; scheduled dates are written by the engine only, never earlier than `planned_start` |
 
-Relationships: Project 1─* Task · Project *─* User · Task *─* Task (dependency).
+Relationships: Project 1─* Task · Project *─* User (members) · Project *─1 User (owner) ·
+Project 1─* ClientNote · Task *─* Task (dependency).
 
 ## 6. PM story: dependency graph, cycles, ordering, critical path
 
@@ -137,11 +147,35 @@ The schedule page (`/projects/{id}/`) shows a **Slack** column to users with `vi
 critical tasks marked, and has an **Edit dependencies** form (any member) that calls
 `set_dependencies()`, so a cycle can be tried and flagged from the UI as well as the API.
 
-## 7. Design principles applied
+## 7. Client dashboard story
+
+> *As a client, I want my own dashboard that is view only so that I can submit new requests and
+> view progress.*
+
+**Client** is a fourth role (`accounts/`). Its only feature is `client_dashboard`; it has no
+`view_schedule`, so `ProjectAccess.is_member()` is false for a client on every project, even one
+they were added to before their role changed. That one check keeps the schedule page, the REST
+API and the WebSocket closed to clients. An admin makes a client a project's **owner** on the
+Projects page (`/projects/`, feature `set_project_owner`).
+
+**Flow (view progress):** `GET /dashboard/{id}/` → `clients.views.project` → `ClientDashboardService.project`
+1. Check the user has `client_dashboard` (else 403).
+2. `ProjectAccess.require_owner()`: a project they don't own, or one that doesn't exist, raises
+   `ProjectOutOfScope`. The view shows *That project is out of scope for your permissions* and
+   redirects to `/dashboard/`, which goes to their own project (or lists them, if they own several).
+3. Build a `ClientProject`: name, dates, and one `ClientTask` (title, status, start, end) per task.
+   Those are the only fields the template gets, so internal details (assignees, descriptions,
+   dependencies, slack, members) can't reach the page, even by accident.
+
+**Flow (notes for the team):** `POST /dashboard/{id}/` → `ClientDashboardService.add_note`: same
+ownership check, then save a `ClientNote`. The schedule page lists the project's notes under
+**Notes from the client**. A client who opens `/projects/{id}/` is redirected to `/dashboard/{id}/`.
+
+## 8. Design principles applied
 
 * **High cohesion:** each module and file has one responsibility (tables in §2).
 * **Low coupling:** one-way dependencies, data coupling to the engine, constructor-supplied collaborators, an interface for events.
-* **Information hiding:** each module hides a decision likely to change (algorithm, storage, permissions, transport).
+* **Information hiding:** each module hides a decision likely to change (algorithm, storage, permissions, transport, what clients see).
 * **Separation of concerns:** HTTP, business rules, persistence and real-time are in separate files.
 * **DRY:** all membership checks go through `ProjectAccess`; all task queries through `TaskRepository`.
 * **YAGNI:** notifications other than real-time are left as an extension point, not built yet.

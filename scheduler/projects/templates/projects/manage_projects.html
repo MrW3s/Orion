@@ -1,0 +1,38 @@
+{% extends "accounts/base.html" %}
+
+{% block title %}Projects · Orion{% endblock %}
+
+{% block content %}
+<h1>Projects</h1>
+
+<div class="card">
+  <p class="small muted">A project's owner is the client it's for. They see its progress on their own
+    dashboard, and can leave notes for the team, but never see the team's internal details.
+    {% if not owners %}To pick an owner, first <a href="{% url 'manage-users' %}#add-user">add a user</a> with the Client role.{% endif %}</p>
+  {% if projects %}
+  <table>
+    <tr><th>Project</th><th>Starts</th><th>Owner</th></tr>
+    {% for project in projects %}
+    <tr>
+      <td>{{ project.name }}</td>
+      <td>{{ project.start_date|date:"M j, Y" }}</td>
+      <td>
+        <form method="post" action="{% url 'set-project-owner' project.pk %}" class="inline">
+          {% csrf_token %}
+          <select name="owner_id" aria-label="Owner of {{ project.name }}">
+            <option value="">No owner</option>
+            {% for owner in owners %}
+              <option value="{{ owner.pk }}"{% if owner.pk == project.owner_id %} selected{% endif %}>{{ owner.username }}</option>
+            {% endfor %}
+          </select>
+          <button>Save</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">There are no projects yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

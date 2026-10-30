@@ -6,6 +6,7 @@ class Role(models.TextChoices):
     TEAM_MEMBER = "team_member", "Team member"
     PROJECT_MANAGER = "project_manager", "Project manager"
     ADMIN = "admin", "Administrator"
+    CLIENT = "client", "Client"  # outside the agency: sees only the projects they own
 
 
 class Profile(models.Model):

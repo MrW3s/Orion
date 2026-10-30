@@ -4,6 +4,9 @@
     POST /projects/<id>/   story 1: add a task from the form
                            PM story: change what a task depends on (cycles are rejected)
 
+The page also lists the notes the project's client has left (client dashboard story).
+A client who opens this URL is sent to their own view-only dashboard instead.
+
 Like views.py, every request goes through task_service(); the rules live in services.py.
 """
 from django.contrib import messages
@@ -11,6 +14,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect, render
 
+from accounts.services import RoleService
 from common.errors import DomainError, NotAProjectMember
 
 from .container import task_service
@@ -24,6 +28,9 @@ def schedule(request, project_id: int):
     try:
         project = service.get_project(request.user, project_id)
     except NotAProjectMember as exc:
+        if RoleService().can(request.user, "client_dashboard"):
+            # Clients get the view-only version, which also turns away projects they don't own.
+            return redirect("client-project", project_id=project_id)
         raise PermissionDenied(str(exc)) from exc
     tasks = service.list_schedule(request.user, project_id)
 
