@@ -8,7 +8,10 @@
     POST /projects/<id>/gantt/reports/<report_id>/resolve/
                                 Gantt story: a project manager marks a report resolved
 
-Clients see the schedule and the Gantt chart but none of the editing forms.
+The schedule page also lists the notes the project's client has left (client
+dashboard story). A client who opens either page is sent to their own
+view-only dashboard instead, which has its own Gantt chart without assignees.
+
 Like views.py, every request goes through task_service(); the rules live in services.py.
 """
 from django.contrib import messages
@@ -18,6 +21,7 @@ from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
+from accounts.services import RoleService
 from common.errors import DomainError, NotAllowed, NotAProjectMember
 
 from .container import task_service
@@ -26,17 +30,21 @@ from .gantt import build_chart
 from .services import NewTask
 
 
+def _turn_away(request, project_id: int, exc: Exception):
+    if RoleService().can(request.user, "client_dashboard"):
+        # Clients get the view-only version, which also turns away projects they don't own.
+        return redirect("client-project", project_id=project_id)
+    raise PermissionDenied(str(exc)) from exc
+
+
 @login_required
 def schedule(request, project_id: int):
     service = task_service()
     try:
         project = service.get_project(request.user, project_id)
     except NotAProjectMember as exc:
-        raise PermissionDenied(str(exc)) from exc
+        return _turn_away(request, project_id, exc)
     tasks = service.list_schedule(request.user, project_id)
-    can_edit = service.can_edit(request.user)
-    if request.method == "POST" and not can_edit:
-        raise PermissionDenied("Your role can view this project but not change it")
 
     # Two forms post to this page; the dependencies form's fields carry a "deps-" prefix.
     editing_deps = request.method == "POST" and "deps-task_id" in request.POST
@@ -67,7 +75,6 @@ def schedule(request, project_id: int):
     can_review = service.can_review_gantt_reports(request.user)
     return render(request, "tasks/schedule.html", {
         "project": project, "tasks": tasks, "form": form, "deps_form": deps_form,
-        "can_edit": can_edit,
         # So the page can tick a task's current dependencies when it's picked
         "current_deps": {t.pk: [d.pk for d in t.depends_on.all()] for t in tasks},
         "show_risk": service.can_view_risk(request.user),  # PM story: slack + critical path
@@ -81,7 +88,9 @@ def gantt(request, project_id: int):
     try:
         project = service.get_project(request.user, project_id)
         tasks = service.gantt_tasks(request.user, project_id)
-    except (NotAProjectMember, NotAllowed) as exc:
+    except NotAProjectMember as exc:
+        return _turn_away(request, project_id, exc)
+    except NotAllowed as exc:
         raise PermissionDenied(str(exc)) from exc
 
     form = GanttReportForm(request.POST if request.method == "POST" else None)
@@ -101,7 +110,7 @@ def gantt(request, project_id: int):
         "project": project,
         "chart": build_chart(tasks, timezone.localdate()),
         "form": form,
-        "can_edit": service.can_edit(request.user),
+        "show_assignees": True,
         "show_risk": service.can_view_risk(request.user),
         "can_review": can_review,
         "reports": service.open_gantt_reports(request.user, project_id) if can_review else [],

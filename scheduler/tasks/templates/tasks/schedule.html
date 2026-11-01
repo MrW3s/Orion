@@ -14,9 +14,6 @@
     <a href="{% url 'project-gantt' project.pk %}#gantt-reports">Read {{ open_reports|pluralize:"it,them" }}</a>
   </div>
 {% endif %}
-{% if not can_edit %}
-  <p class="small muted">You can view this project's schedule and Gantt chart, but not change them.</p>
-{% endif %}
 
 <div class="card" id="schedule">
   <h2>Schedule</h2>
@@ -60,11 +57,23 @@
     {% endfor %}
   </table>
   {% else %}
-  <p class="muted">No tasks yet.{% if can_edit %} Add the first one below.{% endif %}</p>
+  <p class="muted">No tasks yet. Add the first one below.</p>
   {% endif %}
 </div>
 
-{% if can_edit %}
+{% with notes=project.client_notes.all %}
+{% if project.owner or notes %}
+<div class="card" id="client-notes">
+  <h2>Notes from the client</h2>
+  {% for note in notes %}
+    <div class="note">{{ note.text }}<div class="small muted">{{ note.author.username|default:"Former client" }} · {{ note.created_at|date:"M j, Y, g:i A" }}</div></div>
+  {% empty %}
+    <p class="muted">{{ project.owner.username }} hasn't left any notes yet. They see this project's progress on their own dashboard.</p>
+  {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
 <div class="card">
   <h2>Add a task</h2>
   {% if form.errors %}
@@ -143,7 +152,6 @@
   })();
 </script>
 {% endif %}
-{% endif %}{# can_edit #}
 
 <script>
   // "Viewable by all relevant team members": when anyone changes this project,

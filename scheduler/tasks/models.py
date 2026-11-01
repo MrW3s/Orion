@@ -57,6 +57,11 @@ class Task(models.Model):
         return self.planned_start + timedelta(days=self.duration_days - 1)
 
     @property
+    def status_label(self) -> str:
+        """"Not started" / "In progress" / "Complete" (same name as on ClientTask)."""
+        return self.get_status_display()
+
+    @property
     def moved_by_dependencies(self) -> bool:
         return bool(self.planned_start and self.scheduled_start
                     and self.scheduled_start > self.planned_start)

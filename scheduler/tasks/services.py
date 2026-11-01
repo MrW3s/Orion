@@ -19,11 +19,12 @@
                               flagged and rejected, so ordering and critical
                               path are never calculated on a looping schedule.
 
-    Gantt story gantt_tasks() Given a client or team member is on the project,
-                              when they open its Gantt chart, then they see one
-                              bar per task, in dependency order, with its dates
-                              and assignee. Clients can look but not change
-                              anything: every change below checks the role.
+    Gantt story gantt_tasks() Given a team member is on the project, when they
+                              open its Gantt chart, then they see one bar per
+                              task, in dependency order, with its dates and
+                              assignee. (Clients aren't members: they see their
+                              project's chart, without assignees, through
+                              clients.services.ClientDashboardService.)
              report_gantt_problem()
                               When the chart looks wrong, they report it to the
                               scrum master (the project's managers), who see the
@@ -102,7 +103,6 @@ class TaskService:
     # ---- Story 1 -----------------------------------------------------
     def add_task(self, user, project_id: int, new: NewTask) -> Task:
         self._access.require_member(user, project_id)
-        self._require(user, "add_task", "Your role can view this project but not add tasks")
         self._check_name_and_dates(project_id, new)
         if new.assignee_id is not None and not self._access.is_member_id(new.assignee_id, project_id):
             raise InvalidTask("Assignee must be a member of the project")
@@ -133,7 +133,6 @@ class TaskService:
             raise InvalidTask(f"Unknown status {status!r}")
         task = self._repo.get(task_id)
         self._access.require_member(user, task.project_id)
-        self._require(user, "update_status", "Your role can view this project but not change task status")
 
         if task.status == status:
             return task  # nothing changed, nothing to broadcast
@@ -170,7 +169,6 @@ class TaskService:
         """Replace what a task depends on. A cycle is rejected and nothing changes."""
         task = self._repo.get(task_id)
         self._access.require_member(user, task.project_id)
-        self._require(user, "add_task", "Your role can view this project but not edit dependencies")
         self._check_dependencies_in_project(task.project_id, depends_on_ids)
 
         with transaction.atomic():
@@ -185,24 +183,34 @@ class TaskService:
         return task
 
     # ---- Gantt story -------------------------------------------------
-    def can_edit(self, user) -> bool:
-        """Whether the schedule page should offer the add-task and dependencies forms."""
-        return self._roles.can(user, "add_task")
-
     def can_review_gantt_reports(self, user) -> bool:
         return self._roles.can(user, "review_gantt_reports")
 
     def assignable_members(self, project_id: int) -> list:
-        """Project members who can work on tasks (everyone except clients)."""
+        """Project members who can work on tasks (never a client, even one who
+        was added to the project before their role changed)."""
         members = self._access.get_project(project_id).members.order_by("username")
         return [u for u in members if self._roles.can(u, "update_status")]
 
     def gantt_tasks(self, user, project_id: int) -> list[Task]:
+        """The team's Gantt chart: every task, in dependency order."""
+        self._access.require_member(user, project_id)
+        self._require(user, "view_gantt", "Your role can't view the Gantt chart")
+        return self.tasks_in_dependency_order(project_id)
+
+    def report_gantt_problem(self, user, project_id: int, message: str) -> GanttReport:
+        """A team member reports that the chart looks wrong."""
+        self._access.require_member(user, project_id)
+        self._require(user, "report_gantt", "Your role can't report Gantt chart problems")
+        return self.file_gantt_report(project_id, user, message)
+
+    # The next two skip the access checks: the caller has already decided the
+    # user may see this project (gantt_tasks / report_gantt_problem above for
+    # members; ClientDashboardService for the client who owns it).
+    def tasks_in_dependency_order(self, project_id: int) -> list[Task]:
         """Every task in a valid dependency order: a task always comes after
         the tasks it depends on. The dates are the saved schedule, the same
         ones the schedule table shows."""
-        self._access.require_member(user, project_id)
-        self._require(user, "view_gantt", "Your role can't view the Gantt chart")
         project = self._access.get_project(project_id)
         tasks = self._repo.list_for_project(project_id)
         # Saved data never has a cycle (set_dependencies rejects those), so this can't raise.
@@ -210,9 +218,7 @@ class TaskService:
         by_id = {t.pk: t for t in tasks}
         return [by_id[t] for t in order]
 
-    def report_gantt_problem(self, user, project_id: int, message: str) -> GanttReport:
-        self._access.require_member(user, project_id)
-        self._require(user, "report_gantt", "Your role can't report Gantt chart problems")
+    def file_gantt_report(self, project_id: int, reporter, message: str) -> GanttReport:
         message = message.strip()
         if not message:
             raise InvalidReport("Say what looks wrong on the chart")
@@ -220,7 +226,7 @@ class TaskService:
             raise InvalidReport(f"Keep the report under {REPORT_MAX_LENGTH} characters")
 
         with transaction.atomic():
-            report = self._repo.create_gantt_report(project_id=project_id, reporter=user,
+            report = self._repo.create_gantt_report(project_id=project_id, reporter=reporter,
                                                     message=message)
             transaction.on_commit(lambda: self._publisher.publish(
                 ProjectEvent.gantt_reported(project_id, report_id=report.pk)

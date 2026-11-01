@@ -1,0 +1,53 @@
+{% comment %}
+The Gantt chart card, shared by the team's page and the client's dashboard.
+Needs: chart (tasks.gantt.GanttChart), name (for the screen-reader label),
+show_assignees (team only), show_risk (project managers and admins).
+Each row's task only needs .title, .status and .status_label; the client's
+rows (clients.services.ClientTask) carry nothing more, so assignees can't leak.
+{% endcomment %}
+<div class="card" id="gantt">
+  {% if chart.rows %}
+  <p class="small muted">{{ chart.start|date:"M j, Y" }} – {{ chart.end|date:"M j, Y" }} · {{ chart.days }} day{{ chart.days|pluralize }}</p>
+  <div class="gantt" role="img" aria-label="Gantt chart of {{ name }} with {{ chart.rows|length }} tasks">
+    <div class="gantt-grid">
+      <div class="gantt-row head">
+        <div class="gantt-label">Task · {% if show_assignees %}assignee · {% endif %}dates</div>
+        <div class="gantt-track">
+          {% for tick in chart.ticks %}<span class="gantt-tick" style="left: {{ tick.left }}">{{ tick.day|date:"M j" }}</span>{% endfor %}
+        </div>
+      </div>
+      <div class="gantt-body">
+        {% for row in chart.rows %}
+        <div class="gantt-row{% if show_assignees and row.task.assignee_id == user.pk %} mine{% endif %}">
+          <div class="gantt-label">
+            <strong>{{ row.task.title }}</strong>
+            <span class="small muted">{% if show_assignees %}{{ row.task.assignee.username|default:"Unassigned" }} · {% endif %}{{ row.task.status_label }}</span>
+            <span class="small muted">{{ row.start|date:"M j" }} – {{ row.end|date:"M j" }} ({{ row.days }} day{{ row.days|pluralize }})</span>
+          </div>
+          <div class="gantt-track">
+            <div class="gantt-bar status-{{ row.task.status }}{% if show_risk and row.task.is_critical %} critical{% endif %}"
+                 style="left: {{ row.left }}; width: {{ row.width }}"></div>
+          </div>
+        </div>
+        {% endfor %}
+        {% if chart.today_left %}
+        <div class="gantt-today-wrap"><div class="gantt-today" style="left: {{ chart.today_left }}" title="Today"></div></div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="gantt-legend">
+    <span style="--c: #b8c3d6">Not started</span>
+    <span style="--c: #f0b429">In progress</span>
+    <span style="--c: #3fa45a">Complete</span>
+    {% if chart.today_left %}<span style="--c: var(--err-text)">Today</span>{% endif %}
+    {% if show_risk %}<span class="crit" style="--c: #b8c3d6">Red outline: critical (delays the project if it slips)</span>{% endif %}
+  </div>
+  {% for task in chart.unscheduled %}
+    {% if forloop.first %}<p class="small muted">Not on the chart yet (no dates):{% endif %}
+    {{ task.title }}{% if not forloop.last %}, {% else %}</p>{% endif %}
+  {% endfor %}
+  {% else %}
+  <p class="muted">No tasks yet, so there's nothing to chart.</p>
+  {% endif %}
+</div>

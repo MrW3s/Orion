@@ -28,10 +28,10 @@ python manage.py runserver
   *Address already in use*, a server is already running: use it, or stop it with Ctrl+C first.
 * After pulling new code, run `python manage.py migrate` again.
 
-Tests (86):
+Tests (110):
 
 ```bash
-python manage.py test accounts projects scheduling tasks
+python manage.py test accounts projects scheduling tasks clients
 ```
 
 ## API
@@ -45,7 +45,7 @@ python manage.py test accounts projects scheduling tasks
 | PUT | `/api/tasks/{id}/dependencies/` | PM: `{depends_on_ids}` replaces a task's dependencies; a cycle is rejected (400) and nothing changes |
 | WS | `/ws/projects/{id}/` | live events: `schedule.changed`, `task.status_changed`, `gantt.reported` |
 
-Clients can `GET` the schedule but get 403 from every endpoint that changes it.
+Clients aren't project members, so every endpoint here returns 403 for them; they use `/dashboard/` instead.
 
 ## Pages
 
@@ -54,28 +54,31 @@ Open http://127.0.0.1:8000/ and log in.
 | URL | Who | What |
 |---|---|---|
 | `/login/` | anyone | log in |
-| `/` | any user | your role, what it lets you access, your projects |
-| `/users/` | admins only | story 4: change any user's role (client / team member / project manager / administrator), and add new users with a password and role |
+| `/` | any user | your role, what it lets you access, your projects (clients go to `/dashboard/`) |
+| `/users/` | admins only | story 4: change any user's role (team member / project manager / administrator / client), and add new users with a password and role |
 | `/password/` | any user | change your own password |
-| `/projects/new/` | project managers, admins | create a project and pick its members (you're added automatically) |
-| `/projects/{id}/` | project members | story 1: the schedule, plus a form to add a task (name, start date, end date, assignee, dependencies). Updates live when anyone changes the project. Below it, "Edit dependencies" changes what a task depends on; a circular dependency is flagged and nothing changes. Project managers and admins also see each task's slack, with critical tasks marked, and how many Gantt chart reports are open. Clients see the schedule only, without the forms |
-| `/projects/{id}/gantt/` | project members | Gantt story: opened with the **Gantt chart** button on the schedule. One bar per task, in dependency order, with its name, assignee, status and dates, and a line for today; your own tasks are marked. Read-only for everyone, and it redraws live when the project changes. Below it, anyone can report that the chart looks wrong; project managers and admins (the scrum master) see the open reports there and mark them resolved |
+| `/projects/new/` | project managers, admins | create a project and pick its members (you're added automatically; clients can't be members) |
+| `/projects/` | admins only | every project, and which client owns it (pick a user with the Client role, or no owner) |
+| `/dashboard/` | clients | client dashboard: goes straight to your project, or lists them if you own several |
+| `/dashboard/{id}/` | the project's owner | view-only progress (% complete, each task's name, status and dates), the project's **Gantt chart**, and "Notes for the team". Internal details (assignees, descriptions, dependencies, slack, team members) are never shown, on the chart either. Below the chart, "Does something look wrong?" reports it to the scrum master. A project you don't own says it's out of scope for your permissions and takes you to yours |
+| `/projects/{id}/` | project members | story 1: the schedule, plus a form to add a task (name, start date, end date, assignee, dependencies). Updates live when anyone changes the project. Below it, "Edit dependencies" changes what a task depends on; a circular dependency is flagged and nothing changes. Project managers and admins also see each task's slack, with critical tasks marked, and how many Gantt chart reports are open. If the project has an owner, "Notes from the client" lists the notes they've left |
+| `/projects/{id}/gantt/` | project members | Gantt story: opened with the **Gantt chart** button on the schedule. One bar per task, in dependency order, with its name, assignee, status and dates, and a line for today; your own tasks are marked. Read-only, and it redraws live when the project changes. Below it, anyone can report that the chart looks wrong; project managers and admins (the scrum master) see the open reports there and mark them resolved |
 
 ### Roles
 
 | Role | Can |
 |---|---|
-| Client | view their projects' schedules and Gantt charts, and report a chart that looks wrong. Can't change anything or be assigned tasks |
-| Team member | everything a client can, plus add tasks, edit dependencies and update task status |
+| Client | on their own dashboard: follow the progress and Gantt chart of the projects they own, leave notes for the team, and report a chart that looks wrong. Never sees the team's pages, can't change anything and can't be assigned tasks |
+| Team member | view the schedule and Gantt chart of their projects, add tasks, edit dependencies, update task status, report a chart that looks wrong |
 | Project manager | everything a team member can, plus create projects, see slack and the critical path, and read and resolve Gantt chart reports (acts as the scrum master) |
-| Administrator | everything, plus manage users and roles |
+| Administrator | everything except the client dashboard, plus manage users and roles and set project owners |
 
 Superusers are always administrators. Non-admins who open `/users/` or try to change a role get "Access denied" (403).
+Clients who open a team page for a project (`/projects/{id}/` or `/projects/{id}/gantt/`) are sent to their own dashboard instead.
 The exact feature list per role is `ROLE_FEATURES` in `accounts/services.py`; the table at `/users/` shows it.
 
 To try the Gantt story as a client: an admin adds a user with the **Client** role at `/users/`,
-a project manager ticks them as a member when creating a project at `/projects/new/` (members
-are picked when the project is created), and the client logs in and opens that project.
+makes them a project's owner at `/projects/`, and the client logs in; they land on that project's dashboard.
 
 A task's start date is the earliest it can start. If a task it depends on isn't finished by then,
 the engine moves it later (keeping its length) and the schedule says so.
@@ -86,7 +89,8 @@ the engine moves it later (keeping its length) and the schedule says so.
 config/          settings, urls, asgi (HTTP + WebSocket routing)
 accounts/        roles (story 4): Profile model, RoleService (who can use what), login/home/manage-users pages
 common/          domain errors + HTTP error mapping
-projects/        Project model, membership rules (access.py), New project page (services, forms, views)
+projects/        Project + ClientNote models, membership and owner rules (access.py), New project + Projects pages
+clients/         client dashboard: what a client may see (services.py), progress + notes pages
 scheduling/      pure-Python engine: graph.py, scheduler.py, critical_path.py   (no Django)
 tasks/           models, repository, services, serializers, views, container; pages + forms (schedule
                  and Gantt pages); gantt.py lays out the chart's bars

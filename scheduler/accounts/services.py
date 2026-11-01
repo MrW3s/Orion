@@ -39,18 +39,22 @@ FEATURES = {
     "view_risk": "Dependency graph and critical path",
     "review_gantt_reports": "Read and resolve Gantt chart reports",
     "manage_users": "Manage user roles",
+    "set_project_owner": "Set which client owns a project",
+    "client_dashboard": "Your project's progress, and notes for the team",
 }
 
-# What every role can do on the projects they belong to, read-only.
-_VIEWER = {"view_schedule", "view_gantt", "report_gantt"}
+# Everyone who can see a Gantt chart can also report that it looks wrong.
+_GANTT = {"view_gantt", "report_gantt"}
 
 ROLE_FEATURES = {
-    Role.CLIENT: _VIEWER,
-    Role.TEAM_MEMBER: _VIEWER | {"add_task", "update_status"},
+    Role.TEAM_MEMBER: {"view_schedule", "add_task", "update_status"} | _GANTT,
     # Project managers act as the scrum master: Gantt chart reports go to them.
-    Role.PROJECT_MANAGER: _VIEWER | {"add_task", "update_status", "create_projects", "view_risk",
-                                     "review_gantt_reports"},
-    Role.ADMIN: set(FEATURES),
+    Role.PROJECT_MANAGER: {"view_schedule", "add_task", "update_status", "create_projects",
+                           "view_risk", "review_gantt_reports"} | _GANTT,
+    Role.ADMIN: set(FEATURES) - {"client_dashboard"},  # admins use the team's pages
+    # No "view_schedule": the team's pages stay closed. Clients see their own
+    # project's Gantt chart on their dashboard, without assignees.
+    Role.CLIENT: {"client_dashboard"} | _GANTT,
 }
 
 

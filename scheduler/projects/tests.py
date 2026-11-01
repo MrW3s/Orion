@@ -1,13 +1,24 @@
-"""Tests for the New project page (project managers and admins only)."""
+"""Tests for the New project page (project managers and admins only) and the
+Projects page, where admins set which client owns a project."""
+from datetime import date
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
 from accounts.models import Profile, Role
+from common.errors import InvalidProject
 
 from .models import Project
+from .services import ProjectService
 
 User = get_user_model()
+
+
+def make_user(username, role):
+    user = User.objects.create_user(username, password="pw")
+    Profile.objects.create(user=user, role=role)
+    return user
 
 
 class NewProjectPage(TestCase):
@@ -61,3 +72,67 @@ class NewProjectPage(TestCase):
         self.assertContains(self.client.get(reverse("home")), self.url)
         self.client.force_login(self.eve)
         self.assertNotContains(self.client.get(reverse("home")), self.url)
+
+    def test_clients_cant_be_picked_as_team_members(self):
+        carla = make_user("carla", Role.CLIENT)
+        self.client.force_login(self.pm)
+        choices = self.client.get(self.url).context["form"].fields["member_ids"].choices
+        self.assertNotIn(carla.pk, [pk for pk, _ in choices])
+        # Posting them anyway creates nothing
+        self.submit(member_ids=[carla.pk])
+        self.assertFalse(Project.objects.exists())
+
+
+class AdminSetsProjectOwner(TestCase):
+    def setUp(self):
+        self.admin = make_user("ada", Role.ADMIN)
+        self.pm = make_user("pat", Role.PROJECT_MANAGER)
+        self.carla = make_user("carla", Role.CLIENT)
+        self.alice = User.objects.create_user("alice", password="pw")
+        self.project = Project.objects.create(name="Website redesign", start_date=date(2026, 10, 19))
+
+    def set_owner(self, owner_id):
+        return self.client.post(reverse("set-project-owner", args=[self.project.pk]),
+                                {"owner_id": owner_id}, follow=True)
+
+    def owner(self):
+        self.project.refresh_from_db()
+        return self.project.owner
+
+    def test_admin_makes_a_client_the_owner(self):
+        # Given an admin is on the Projects page
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("manage-projects"))
+        self.assertContains(response, "Website redesign")
+        self.assertContains(response, ">carla</option>")
+        self.assertNotContains(response, ">alice</option>")  # only clients can be picked
+        # When they set the project's owner
+        response = self.set_owner(self.carla.pk)
+        # Then it's saved, and the client finds the project on their dashboard
+        self.assertContains(response, "carla now owns “Website redesign”.")
+        self.assertEqual(self.owner(), self.carla)
+        self.client.force_login(self.carla)
+        self.assertRedirects(self.client.get(reverse("client-dashboard")),
+                             reverse("client-project", args=[self.project.pk]))
+
+    def test_admin_can_clear_the_owner(self):
+        self.project.owner = self.carla
+        self.project.save()
+        self.client.force_login(self.admin)
+        self.assertContains(self.set_owner(""), "no longer has an owner")
+        self.assertIsNone(self.owner())
+
+    def test_only_clients_can_own_a_project(self):
+        self.client.force_login(self.admin)
+        self.assertContains(self.set_owner(self.alice.pk), "Pick the owner from the list.")
+        self.assertIsNone(self.owner())
+        with self.assertRaises(InvalidProject):  # the rule itself is in the service
+            ProjectService().set_owner(self.admin, self.project.pk, self.alice.pk)
+
+    def test_non_admins_cannot_set_owners(self):
+        for user in (self.pm, self.alice, self.carla):
+            self.client.force_login(user)
+            self.assertEqual(self.client.get(reverse("manage-projects")).status_code, 403)
+            self.assertEqual(self.client.post(reverse("set-project-owner", args=[self.project.pk]),
+                                              {"owner_id": self.carla.pk}).status_code, 403)
+        self.assertIsNone(self.owner())
