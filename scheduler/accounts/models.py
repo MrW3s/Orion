@@ -3,6 +3,7 @@ from django.db import models
 
 
 class Role(models.TextChoices):
+    CLIENT = "client", "Client"  # sees their projects' schedules and Gantt charts, can't change them
     TEAM_MEMBER = "team_member", "Team member"
     PROJECT_MANAGER = "project_manager", "Project manager"
     ADMIN = "admin", "Administrator"

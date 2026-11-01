@@ -35,3 +35,8 @@ class ProjectEvent:
                        changed_by: int) -> "ProjectEvent":
         return cls(project_id, "task.status_changed",
                    {"task_id": task_id, "status": status, "changed_by": changed_by})
+
+    @classmethod
+    def gantt_reported(cls, project_id: int, *, report_id: int) -> "ProjectEvent":
+        # So a project manager with the Gantt chart open sees the new report straight away.
+        return cls(project_id, "gantt.reported", {"report_id": report_id})

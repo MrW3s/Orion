@@ -31,17 +31,25 @@ from .models import Profile, Role
 
 FEATURES = {
     "view_schedule": "View project schedules",
-    "add_task": "Add tasks",
+    "view_gantt": "View the Gantt chart",
+    "report_gantt": "Report a Gantt chart that looks wrong",
+    "add_task": "Add tasks and edit dependencies",
     "update_status": "Update task status",
     "create_projects": "Create projects",
     "view_risk": "Dependency graph and critical path",
+    "review_gantt_reports": "Read and resolve Gantt chart reports",
     "manage_users": "Manage user roles",
 }
 
+# What every role can do on the projects they belong to, read-only.
+_VIEWER = {"view_schedule", "view_gantt", "report_gantt"}
+
 ROLE_FEATURES = {
-    Role.TEAM_MEMBER: {"view_schedule", "add_task", "update_status"},
-    Role.PROJECT_MANAGER: {"view_schedule", "add_task", "update_status", "create_projects",
-                           "view_risk"},
+    Role.CLIENT: _VIEWER,
+    Role.TEAM_MEMBER: _VIEWER | {"add_task", "update_status"},
+    # Project managers act as the scrum master: Gantt chart reports go to them.
+    Role.PROJECT_MANAGER: _VIEWER | {"add_task", "update_status", "create_projects", "view_risk",
+                                     "review_gantt_reports"},
     Role.ADMIN: set(FEATURES),
 }
 

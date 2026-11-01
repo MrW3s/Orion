@@ -3,8 +3,20 @@
 {% block title %}{{ project.name }} · Orion{% endblock %}
 
 {% block content %}
-<h1>{{ project.name }}</h1>
+<div class="page-head">
+  <h1>{{ project.name }}</h1>
+  <a class="button" href="{% url 'project-gantt' project.pk %}">Gantt chart</a>
+</div>
 <p class="muted">Project starts {{ project.start_date|date:"M j, Y" }}</p>
+{% if open_reports %}
+  <div class="msg msg-error">
+    {{ open_reports }} open report{{ open_reports|pluralize }} that the Gantt chart looks wrong.
+    <a href="{% url 'project-gantt' project.pk %}#gantt-reports">Read {{ open_reports|pluralize:"it,them" }}</a>
+  </div>
+{% endif %}
+{% if not can_edit %}
+  <p class="small muted">You can view this project's schedule and Gantt chart, but not change them.</p>
+{% endif %}
 
 <div class="card" id="schedule">
   <h2>Schedule</h2>
@@ -48,10 +60,11 @@
     {% endfor %}
   </table>
   {% else %}
-  <p class="muted">No tasks yet. Add the first one below.</p>
+  <p class="muted">No tasks yet.{% if can_edit %} Add the first one below.{% endif %}</p>
   {% endif %}
 </div>
 
+{% if can_edit %}
 <div class="card">
   <h2>Add a task</h2>
   {% if form.errors %}
@@ -118,9 +131,10 @@
 <script>
   // When a task is picked, tick what it depends on now, so the form starts from its current state.
   (function () {
-    const deps = JSON.parse(document.getElementById("current-deps").textContent);
     const form = document.getElementById("edit-dependencies");
     form.querySelector("select").addEventListener("change", function () {
+      // Read it each time: the live refresh below swaps in the latest version.
+      const deps = JSON.parse(document.getElementById("current-deps").textContent);
       const current = deps[this.value] || [];
       form.querySelectorAll("input[type=checkbox]").forEach(function (box) {
         box.checked = current.includes(Number(box.value));
@@ -129,6 +143,7 @@
   })();
 </script>
 {% endif %}
+{% endif %}{# can_edit #}
 
 <script>
   // "Viewable by all relevant team members": when anyone changes this project,
@@ -138,8 +153,12 @@
     const socket = new WebSocket(scheme + "://" + location.host + "/ws/projects/{{ project.pk }}/");
     socket.onmessage = async function () {
       const html = await (await fetch(location.href)).text();
-      const fresh = new DOMParser().parseFromString(html, "text/html").getElementById("schedule");
-      if (fresh) document.getElementById("schedule").replaceWith(fresh);
+      const page = new DOMParser().parseFromString(html, "text/html");
+      // The table, and the current dependencies the dependencies form pre-ticks.
+      for (const id of ["schedule", "current-deps"]) {
+        const fresh = page.getElementById(id), old = document.getElementById(id);
+        if (fresh && old) old.replaceWith(fresh);
+      }
     };
   })();
 </script>

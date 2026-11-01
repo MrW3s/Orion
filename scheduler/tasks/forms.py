@@ -28,6 +28,17 @@ class AddTaskForm(forms.Form):
         self.fields["depends_on_ids"].choices = [(t.pk, t.title) for t in tasks]
 
 
+class GanttReportForm(forms.Form):
+    """'This chart looks wrong' (Gantt story). The length rule is in services.py."""
+
+    message = forms.CharField(
+        label="What looks wrong?",
+        widget=forms.Textarea(attrs={"rows": 3, "placeholder":
+                                     "e.g. “Launch” should finish on Nov 14, not Nov 21"}),
+        error_messages={"required": "Say what looks wrong on the chart."},
+    )
+
+
 class EditDependenciesForm(forms.Form):
     """Change what an existing task depends on (PM story). Uses prefix="deps" on the
     page so its fields don't clash with the "Add a task" form's."""

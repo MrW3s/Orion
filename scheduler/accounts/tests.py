@@ -96,6 +96,19 @@ class HomePage(Fixture):
         self.assertContains(response, "Add tasks")
         self.assertNotContains(response, "Manage user")
 
+    def test_client_role_can_view_but_not_change(self):
+        Profile.objects.create(user=self.eve, role=Role.CLIENT)
+        eve = User.objects.get(pk=self.eve.pk)
+        self.assertTrue(self.roles.can(eve, "view_gantt"))
+        self.assertTrue(self.roles.can(eve, "report_gantt"))
+        for feature in ("add_task", "update_status", "review_gantt_reports"):
+            self.assertFalse(self.roles.can(eve, feature))
+        self.client.force_login(eve)
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, "Client")
+        self.assertContains(response, "View the Gantt chart")
+        self.assertNotContains(response, "Add tasks")
+
     def test_admin_gets_link_to_user_management(self):
         self.client.force_login(self.admin)
         self.assertContains(self.client.get(reverse("home")), reverse("manage-users"))

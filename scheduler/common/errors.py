@@ -47,3 +47,11 @@ class InvalidUser(DomainError):
 
 class InvalidProject(DomainError):
     """Project data breaks a rule (e.g. no name)."""
+
+
+class InvalidReport(DomainError):
+    """A Gantt chart report breaks a rule (e.g. no description)."""
+
+
+class ReportNotFound(DomainError):
+    pass

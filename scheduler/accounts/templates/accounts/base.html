@@ -19,7 +19,7 @@
     header .brand { font-weight: 700; letter-spacing: .02em; }
     header .spacer { flex: 1; }
     header form { margin: 0; }
-    main { max-width: 860px; margin: 32px auto; padding: 0 16px; }
+    main { max-width: {% block main_width %}860px{% endblock %}; margin: 32px auto; padding: 0 16px; }
     h1 { font-size: 24px; margin: 0 0 16px; }
     h2 { font-size: 17px; margin: 0 0 12px; }
     .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
@@ -57,7 +57,13 @@
     .status-in_progress { background: #fff4d6; color: #8a5a00; }
     .status-complete { background: var(--ok-bg); color: var(--ok-text); }
     .status-critical { background: var(--err-bg); color: var(--err-text); }
+    .page-head { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+    .page-head h1 { margin-right: auto; }
+    a.button { display: inline-block; padding: 6px 14px; border-radius: 6px; background: var(--accent);
+               color: #fff; text-decoration: none; }
+    a.button.secondary { background: #e8eefc; color: var(--accent); }
   </style>
+  {% block head %}{% endblock %}
 </head>
 <body>
   {% if user.is_authenticated %}
