@@ -57,6 +57,34 @@ class Task(models.Model):
         return self.planned_start + timedelta(days=self.duration_days - 1)
 
     @property
+    def status_label(self) -> str:
+        """"Not started" / "In progress" / "Complete" (same name as on ClientTask)."""
+        return self.get_status_display()
+
+    @property
     def moved_by_dependencies(self) -> bool:
         return bool(self.planned_start and self.scheduled_start
                     and self.scheduled_start > self.planned_start)
+
+
+class GanttReport(models.Model):
+    """A client or team member saying the project's Gantt chart looks wrong.
+    Project managers (the scrum master) read these and mark them resolved."""
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="gantt_reports")
+    reporter = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="gantt_reports",
+    )
+    message = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="resolved_gantt_reports",
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self) -> str:
+        return f"Gantt report on {self.project} by {self.reporter}"

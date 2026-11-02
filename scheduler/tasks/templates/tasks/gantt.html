@@ -1,0 +1,56 @@
+{% extends "accounts/base.html" %}
+
+{% block title %}Gantt chart · {{ project.name }} · Orion{% endblock %}
+{% block main_width %}1100px{% endblock %}
+{% block head %}{% include "tasks/_gantt_styles.html" %}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>{{ project.name }}: Gantt chart</h1>
+  <a class="button secondary" href="{% url 'project-schedule' project.pk %}">Back to schedule</a>
+</div>
+<p class="muted">Tasks are listed in dependency order: each one comes after the tasks it waits for.</p>
+
+{% include "tasks/_gantt_chart.html" with name=project.name %}
+
+{% if can_review %}
+<div class="card" id="gantt-reports">
+  <h2>Reports about this chart</h2>
+  {% for report in reports %}
+    {% if forloop.first %}<table><tr><th>From</th><th>When</th><th>What looks wrong</th><th></th></tr>{% endif %}
+    <tr>
+      <td>{{ report.reporter.username|default:"a former user" }}</td>
+      <td class="small">{{ report.created_at|date:"M j, H:i" }}</td>
+      <td>{{ report.message|linebreaksbr }}</td>
+      <td>
+        <form method="post" action="{% url 'resolve-gantt-report' project.pk report.pk %}">
+          {% csrf_token %}<button>Mark resolved</button>
+        </form>
+      </td>
+    </tr>
+    {% if forloop.last %}</table>{% endif %}
+  {% empty %}
+    <p class="muted">No open reports.</p>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% url 'project-gantt' project.pk as action %}
+{% include "tasks/_gantt_report_form.html" %}
+
+<script>
+  // Keep the chart current: when anyone changes this project, redraw it in place.
+  (function () {
+    const scheme = location.protocol === "https:" ? "wss" : "ws";
+    const socket = new WebSocket(scheme + "://" + location.host + "/ws/projects/{{ project.pk }}/");
+    socket.onmessage = async function () {
+      const html = await (await fetch(location.href)).text();
+      const page = new DOMParser().parseFromString(html, "text/html");
+      for (const id of ["gantt", "gantt-reports"]) {
+        const fresh = page.getElementById(id), old = document.getElementById(id);
+        if (fresh && old) old.replaceWith(fresh);
+      }
+    };
+  })();
+</script>
+{% endblock %}

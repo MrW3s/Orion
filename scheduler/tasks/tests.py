@@ -392,3 +392,265 @@ class PMStoryDependenciesPage(TestCase):
         self.assertNotContains(response, "The task wasn")  # the Add a task form isn't affected
         # ...and the dependency isn't saved
         self.assertEqual(list(design.depends_on.all()), [])
+
+
+class GanttStory(TestCase):
+    """Gantt story, from its test conditions:
+
+    Precondition: Seth is logged in and on the Website Redesign schedule.
+      1. Click "Gantt chart."  A chart shows one bar per task, in dependency order.
+    Precondition: client2 is logged into their dashboard and can also view the
+      Gantt chart, but not edit it.
+      The system displays the chart but does not allow them to interact with it.
+    And when the chart looks wrong, either of them can report it to the scrum master.
+
+    client2 owns the project (client dashboard story): they're not a member,
+    so they see the chart on /dashboard/<id>/, without assignees.
+    """
+
+    def setUp(self):
+        from accounts.models import Profile, Role
+        self.seth = User.objects.create_user("seth", password="pw")          # team member
+        self.client2 = User.objects.create_user("client2", password="pw")
+        Profile.objects.create(user=self.client2, role=Role.CLIENT)
+        self.scrum = User.objects.create_user("sam", password="pw")          # project manager
+        Profile.objects.create(user=self.scrum, role=Role.PROJECT_MANAGER)
+        self.outsider = User.objects.create_user("eve", password="pw")
+        self.project = Project.objects.create(name="Website Redesign", start_date=START,
+                                              owner=self.client2)
+        self.project.members.add(self.seth, self.scrum)
+
+        self.publisher = InMemoryPublisher()
+        self.service = TaskService(TaskRepository(), Scheduler(), ProjectAccess(), self.publisher)
+        add = lambda title, days, deps=(), **kw: self.service.add_task(
+            self.seth, self.project.pk, new_task(title, days=days, depends_on_ids=list(deps), **kw))
+        # Created in this order on purpose: "Wireframes" is made to wait for
+        # "Content", created after it, so id order isn't dependency order.
+        self.wireframes = add("Wireframes", 3, assignee_id=self.seth.pk)   # Oct 19-21
+        self.content = add("Content", 2)                                   # Oct 19-20
+        self.build = add("Build", 4, [self.wireframes.pk])
+        self.service.set_dependencies(self.seth, self.wireframes.pk, [self.content.pk])
+        # Wireframes Oct 21-23 now, Build Oct 24-27
+
+        self.schedule_url = reverse("project-schedule", args=[self.project.pk])
+        self.gantt_url = reverse("project-gantt", args=[self.project.pk])
+        self.dashboard_url = reverse("client-project", args=[self.project.pk])
+        self.client_report_url = reverse("client-gantt-report", args=[self.project.pk])
+
+    def chart_titles(self, response):
+        return [row.task.title for row in response.context["chart"].rows]
+
+    @staticmethod
+    def chart_html(response):
+        html = response.content.decode()
+        return html[html.index('id="gantt"'):html.index('id="gantt-report"')]
+
+    # ---- Seth (team member) ------------------------------------------
+    def test_seth_clicks_gantt_chart_and_sees_one_bar_per_task_in_dependency_order(self):
+        # Given Seth is logged in and on the Website Redesign schedule
+        self.client.force_login(self.seth)
+        schedule = self.client.get(self.schedule_url)
+        # When he clicks "Gantt chart"
+        self.assertContains(schedule, f'href="{self.gantt_url}">Gantt chart</a>')
+        response = self.client.get(self.gantt_url)
+        # Then a chart shows one bar per task...
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content.decode().count('class="gantt-bar'), 3)
+        # ...in dependency order: every task after the tasks it depends on
+        self.assertEqual(self.chart_titles(response), ["Content", "Wireframes", "Build"])
+
+    def test_chart_shows_dates_task_names_and_assignees(self):
+        self.client.force_login(self.seth)
+        response = self.client.get(self.gantt_url)
+        self.assertContains(response, "Wireframes")
+        self.assertContains(response, "seth · Not started")
+        self.assertContains(response, "Unassigned")
+        self.assertContains(response, "Oct 21 – Oct 23 (3 days)")
+        self.assertContains(response, "Oct 24 – Oct 27 (4 days)")
+        self.assertContains(response, "Oct 19, 2026 – Oct 27, 2026 · 9 days")
+
+    def test_bars_sit_on_their_dates(self):
+        self.client.force_login(self.seth)
+        rows = {r.task.title: r for r in self.client.get(self.gantt_url).context["chart"].rows}
+        # 9-day timeline: Content is days 0-1, Wireframes days 2-4, Build days 5-8
+        self.assertEqual((rows["Content"].left, rows["Content"].width), ("0.000%", "22.222%"))
+        self.assertEqual((rows["Wireframes"].left, rows["Wireframes"].width), ("22.222%", "33.333%"))
+        self.assertEqual((rows["Build"].left, rows["Build"].width), ("55.556%", "44.444%"))
+
+    def test_chart_updates_after_a_change(self):
+        self.service.set_dependencies(self.seth, self.wireframes.pk, [])  # no longer waits
+        self.client.force_login(self.seth)
+        self.assertContains(self.client.get(self.gantt_url), "Oct 19 – Oct 21 (3 days)")
+
+    def test_team_chart_has_nothing_to_click_either(self):
+        self.client.force_login(self.seth)
+        chart = self.chart_html(self.client.get(self.gantt_url))
+        for control in ("<a ", "<button", "<form", "<input", "<select"):
+            self.assertNotIn(control, chart)
+
+    def test_outsider_cannot_see_the_chart(self):
+        self.client.force_login(self.outsider)
+        self.assertEqual(self.client.get(self.gantt_url).status_code, 403)
+
+    # ---- client2 (client who owns the project) ------------------------
+    def test_client_sees_the_chart_on_their_dashboard(self):
+        # Given client2 is logged into their dashboard
+        self.client.force_login(self.client2)
+        self.assertRedirects(self.client.get(reverse("home")), reverse("client-dashboard"),
+                             target_status_code=302)  # -> their only project
+        response = self.client.get(self.dashboard_url)
+        # Then the chart is displayed: one bar per task, in dependency order, with dates
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.chart_titles(response), ["Content", "Wireframes", "Build"])
+        self.assertEqual(response.content.decode().count('class="gantt-bar'), 3)
+        self.assertContains(response, "Oct 21 – Oct 23 (3 days)")
+        self.assertContains(response, "You can view this chart but not change it.")
+
+    def test_client_cannot_interact_with_the_chart(self):
+        self.client.force_login(self.client2)
+        chart = self.chart_html(self.client.get(self.dashboard_url))
+        # Nothing to click or edit inside the chart...
+        for control in ("<a ", "<button", "<form", "<input", "<select"):
+            self.assertNotIn(control, chart)
+        # ...and the team's internal details stay hidden: no assignees, no critical marking
+        self.assertNotIn("seth", chart)
+        self.assertNotIn("Unassigned", chart)
+        self.assertNotIn("critical", chart)
+
+    def test_client_opening_the_team_chart_goes_to_their_dashboard(self):
+        self.client.force_login(self.client2)
+        self.assertRedirects(self.client.get(self.gantt_url), self.dashboard_url)
+
+    def test_client_cannot_edit_through_the_pages_or_the_api(self):
+        self.client.force_login(self.client2)
+        self.client.post(self.schedule_url, {"title": "Sneaky", "start_date": "2026-10-19",
+                                             "end_date": "2026-10-19"})
+        self.client.post(self.schedule_url, {"deps-task_id": self.build.pk,
+                                             "deps-depends_on_ids": []})
+        api = APIClient()
+        api.force_authenticate(self.client2)
+        self.assertEqual(api.post(f"/api/projects/{self.project.pk}/tasks/",
+                                  {"title": "Sneaky", "start_date": "2026-10-19",
+                                   "end_date": "2026-10-19"}, format="json").status_code, 403)
+        self.assertEqual(api.patch(f"/api/tasks/{self.build.pk}/status/",
+                                   {"status": "complete"}, format="json").status_code, 403)
+        self.assertEqual(api.put(f"/api/tasks/{self.build.pk}/dependencies/",
+                                 {"depends_on_ids": []}, format="json").status_code, 403)
+        # Nothing changed
+        self.build.refresh_from_db()
+        self.assertEqual(self.build.status, TaskStatus.TODO)
+        self.assertEqual(list(self.build.depends_on.all()), [self.wireframes])
+        self.assertFalse(Task.objects.filter(title="Sneaky").exists())
+
+    def test_client_cannot_see_another_clients_chart(self):
+        from accounts.models import Profile, Role
+        other = User.objects.create_user("client3", password="pw")
+        Profile.objects.create(user=other, role=Role.CLIENT)
+        self.client.force_login(other)
+        response = self.client.get(self.dashboard_url, follow=True)
+        self.assertContains(response, "out of scope for your permissions")
+        self.assertNotContains(response, "Wireframes")
+
+    def test_clients_are_never_offered_as_assignees(self):
+        self.project.members.add(self.client2)  # e.g. added before they became a client
+        self.client.force_login(self.seth)
+        form = self.client.get(self.schedule_url).context["form"]
+        self.assertNotIn(self.client2.pk, [pk for pk, _ in form.fields["assignee_id"].choices])
+
+    # ---- Reporting a wrong chart to the scrum master ------------------
+    def test_client_reports_a_wrong_chart_and_the_scrum_master_sees_it(self):
+        # Given the chart is displayed to client2; when it looks wrong and they report it
+        self.client.force_login(self.client2)
+        response = self.client.post(self.client_report_url,
+                                    {"message": "Build should finish on Oct 30"}, follow=True)
+        # Then it's sent to the scrum master...
+        self.assertRedirects(response, self.dashboard_url)
+        self.assertContains(response, "Your report was sent to the project")
+        # ...who sees it on the team's chart and a notice on the schedule
+        self.client.force_login(self.scrum)
+        gantt = self.client.get(self.gantt_url)
+        self.assertContains(gantt, "Build should finish on Oct 30")
+        self.assertContains(gantt, "client2")
+        self.assertContains(self.client.get(self.schedule_url),
+                            "1 open report that the Gantt chart looks wrong")
+
+    def test_team_member_can_report_too(self):
+        self.client.force_login(self.seth)
+        response = self.client.post(self.gantt_url, {"message": "Content is missing its assignee"},
+                                    follow=True)
+        self.assertContains(response, "Your report was sent")
+        self.assertNotContains(response, "Reports about this chart")  # only the scrum master's inbox
+        self.assertEqual(self.service.open_gantt_reports(self.scrum, self.project.pk)[0].reporter,
+                         self.seth)
+
+    def test_empty_report_is_rejected(self):
+        self.client.force_login(self.client2)
+        response = self.client.post(self.client_report_url, {"message": "   "})
+        self.assertContains(response, "The report wasn")
+        self.client.force_login(self.seth)
+        self.assertContains(self.client.post(self.gantt_url, {"message": ""}), "The report wasn")
+        self.assertEqual(self.service.open_gantt_reports(self.scrum, self.project.pk), [])
+
+    def test_client_cannot_report_on_a_project_they_dont_own(self):
+        from accounts.models import Profile, Role
+        other = User.objects.create_user("client3", password="pw")
+        Profile.objects.create(user=other, role=Role.CLIENT)
+        self.client.force_login(other)
+        response = self.client.post(self.client_report_url, {"message": "Dates are off"}, follow=True)
+        self.assertContains(response, "out of scope for your permissions")
+        self.assertEqual(self.service.open_gantt_reports(self.scrum, self.project.pk), [])
+
+    def test_report_tells_a_watching_scrum_master_straight_away(self):
+        from clients.services import ClientDashboardService
+        clients = ClientDashboardService(task_service=self.service)
+        with self.captureOnCommitCallbacks(execute=True):
+            report = clients.report_gantt_problem(self.client2, self.project.pk, "Dates are off")
+        self.assertEqual(self.publisher.events[-1].type, "gantt.reported")
+        self.assertEqual(self.publisher.events[-1].data, {"report_id": report.pk})
+
+    def test_scrum_master_resolves_a_report(self):
+        report = self.service.file_gantt_report(self.project.pk, self.client2, "Dates are off")
+        self.client.force_login(self.scrum)
+        url = reverse("resolve-gantt-report", args=[self.project.pk, report.pk])
+        self.assertContains(self.client.post(url, follow=True), "Marked client2’s report as resolved.")
+        self.assertEqual(self.service.open_gantt_reports(self.scrum, self.project.pk), [])
+
+    def test_only_project_managers_read_or_resolve_reports(self):
+        from common.errors import NotAllowed, NotAProjectMember
+        report = self.service.file_gantt_report(self.project.pk, self.client2, "Dates are off")
+        with self.assertRaises(NotAllowed):
+            self.service.open_gantt_reports(self.seth, self.project.pk)
+        with self.assertRaises(NotAProjectMember):
+            self.service.open_gantt_reports(self.client2, self.project.pk)
+        url = reverse("resolve-gantt-report", args=[self.project.pk, report.pk])
+        for user in (self.seth, self.client2):
+            self.client.force_login(user)
+            self.assertEqual(self.client.post(url).status_code, 403)
+        report.refresh_from_db()
+        self.assertIsNone(report.resolved_at)
+
+
+class GanttLayout(TestCase):
+    """tasks/gantt.py: dates -> bar positions. No database needed."""
+
+    def stub(self, start, end):
+        from types import SimpleNamespace
+        return SimpleNamespace(scheduled_start=start, scheduled_end=end)
+
+    def test_today_line_only_when_today_is_on_the_chart(self):
+        from .gantt import build_chart
+        tasks = [self.stub(date(2026, 10, 19), date(2026, 10, 28))]  # 10 days
+        self.assertEqual(build_chart(tasks, date(2026, 10, 19)).today_left, "5.000%")
+        self.assertIsNone(build_chart(tasks, date(2026, 11, 2)).today_left)
+
+    def test_daily_ticks_for_short_charts_weekly_for_long_ones(self):
+        from .gantt import build_chart
+        short = build_chart([self.stub(date(2026, 10, 19), date(2026, 10, 25))], START)
+        self.assertEqual(len(short.ticks), 7)
+        long = build_chart([self.stub(date(2026, 10, 19), date(2026, 12, 13))], START)  # 8 weeks
+        self.assertEqual(len(long.ticks), 8)
+
+    def test_no_tasks(self):
+        from .gantt import build_chart
+        chart = build_chart([], START)
+        self.assertEqual((chart.rows, chart.days, chart.today_left), ([], 0, None))

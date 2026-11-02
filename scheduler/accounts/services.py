@@ -31,21 +31,30 @@ from .models import Profile, Role
 
 FEATURES = {
     "view_schedule": "View project schedules",
-    "add_task": "Add tasks",
+    "view_gantt": "View the Gantt chart",
+    "report_gantt": "Report a Gantt chart that looks wrong",
+    "add_task": "Add tasks and edit dependencies",
     "update_status": "Update task status",
     "create_projects": "Create projects",
     "view_risk": "Dependency graph and critical path",
+    "review_gantt_reports": "Read and resolve Gantt chart reports",
     "manage_users": "Manage user roles",
     "set_project_owner": "Set which client owns a project",
     "client_dashboard": "Your project's progress, and notes for the team",
 }
 
+# Everyone who can see a Gantt chart can also report that it looks wrong.
+_GANTT = {"view_gantt", "report_gantt"}
+
 ROLE_FEATURES = {
-    Role.TEAM_MEMBER: {"view_schedule", "add_task", "update_status"},
+    Role.TEAM_MEMBER: {"view_schedule", "add_task", "update_status"} | _GANTT,
+    # Project managers act as the scrum master: Gantt chart reports go to them.
     Role.PROJECT_MANAGER: {"view_schedule", "add_task", "update_status", "create_projects",
-                           "view_risk"},
+                           "view_risk", "review_gantt_reports"} | _GANTT,
     Role.ADMIN: set(FEATURES) - {"client_dashboard"},  # admins use the team's pages
-    Role.CLIENT: {"client_dashboard"},  # no "view_schedule": the team's pages stay closed
+    # No "view_schedule": the team's pages stay closed. Clients see their own
+    # project's Gantt chart on their dashboard, without assignees.
+    Role.CLIENT: {"client_dashboard"} | _GANTT,
 }
 
 

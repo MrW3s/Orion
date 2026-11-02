@@ -59,3 +59,11 @@ class ProjectOutOfScope(DomainError):
 
 class InvalidNote(DomainError):
     """A client's note for the team breaks a rule (e.g. it's empty)."""
+
+
+class InvalidReport(DomainError):
+    """A Gantt chart report breaks a rule (e.g. no description)."""
+
+
+class ReportNotFound(DomainError):
+    pass

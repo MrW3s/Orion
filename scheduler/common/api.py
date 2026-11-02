@@ -5,9 +5,9 @@ from rest_framework.response import Response
 from rest_framework.views import exception_handler
 
 from .errors import (
-    DomainError, InvalidDependency, InvalidNote, InvalidProject, InvalidRoleChange, InvalidTask,
-    InvalidUser, NotAllowed, NotAnAdmin, NotAProjectMember, ProjectNotFound, ProjectOutOfScope,
-    TaskNotFound, UserNotFound,
+    DomainError, InvalidDependency, InvalidNote, InvalidProject, InvalidReport, InvalidRoleChange,
+    InvalidTask, InvalidUser, NotAllowed, NotAnAdmin, NotAProjectMember, ProjectNotFound,
+    ProjectOutOfScope, ReportNotFound, TaskNotFound, UserNotFound,
 )
 
 STATUS_FOR = {
@@ -24,6 +24,8 @@ STATUS_FOR = {
     ProjectNotFound: status.HTTP_404_NOT_FOUND,
     ProjectOutOfScope: status.HTTP_403_FORBIDDEN,
     InvalidNote: status.HTTP_400_BAD_REQUEST,
+    InvalidReport: status.HTTP_400_BAD_REQUEST,
+    ReportNotFound: status.HTTP_404_NOT_FOUND,
 }
 
 

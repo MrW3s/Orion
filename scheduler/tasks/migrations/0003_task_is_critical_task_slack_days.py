@@ -3,9 +3,35 @@
 from django.db import migrations, models
 
 
+def backfill_slack(apps, schema_editor):
+    """Give tasks that existed before this migration their slack and critical flag,
+    instead of leaving them blank until someone next changes their project."""
+    from scheduling import CycleError, Scheduler, TaskNode
+
+    Project = apps.get_model("projects", "Project")
+    Task = apps.get_model("tasks", "Task")
+    for project in Project.objects.all():
+        tasks = list(Task.objects.filter(project=project).prefetch_related("depends_on"))
+        if not tasks:
+            continue
+        nodes = [TaskNode(id=t.pk, duration_days=t.duration_days,
+                          depends_on=frozenset(d.pk for d in t.depends_on.all()),
+                          earliest_start=t.planned_start)
+                 for t in tasks]
+        try:
+            result = Scheduler().compute(project.start_date, nodes)
+        except CycleError:
+            continue  # can't happen with data saved by the app; leave it for a manual fix
+        for task in tasks:
+            slot = result.tasks[task.pk]
+            task.slack_days, task.is_critical = slot.slack_days, slot.is_critical
+        Task.objects.bulk_update(tasks, ["slack_days", "is_critical"])
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
+        ('projects', '0001_initial'),
         ('tasks', '0002_task_planned_start_alter_task_status'),
     ]
 
@@ -20,4 +46,5 @@ class Migration(migrations.Migration):
             name='slack_days',
             field=models.IntegerField(blank=True, null=True),
         ),
+        migrations.RunPython(backfill_slack, migrations.RunPython.noop),
     ]

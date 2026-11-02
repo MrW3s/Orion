@@ -96,6 +96,20 @@ class HomePage(Fixture):
         self.assertContains(response, "Add tasks")
         self.assertNotContains(response, "Manage user")
 
+    def test_gantt_permissions_by_role(self):
+        # Everyone can view the Gantt chart and report problems with it...
+        Profile.objects.create(user=self.eve, role=Role.CLIENT)
+        client, member = User.objects.get(pk=self.eve.pk), self.john
+        for user in (client, member, self.admin):
+            self.assertTrue(self.roles.can(user, "view_gantt"))
+            self.assertTrue(self.roles.can(user, "report_gantt"))
+        # ...but only project managers and admins (the scrum master) read the reports,
+        # and clients still can't change anything or open the team's schedule
+        self.assertTrue(self.roles.can(self.admin, "review_gantt_reports"))
+        for feature in ("review_gantt_reports", "view_schedule", "add_task", "update_status"):
+            self.assertFalse(self.roles.can(client, feature))
+        self.assertFalse(self.roles.can(member, "review_gantt_reports"))
+
     def test_admin_gets_link_to_user_management(self):
         self.client.force_login(self.admin)
         self.assertContains(self.client.get(reverse("home")), reverse("manage-users"))

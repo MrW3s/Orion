@@ -1,0 +1,18 @@
+{% comment %}"Does something look wrong?" Needs: form (GanttReportForm), action (where it posts).{% endcomment %}
+<div class="card" id="gantt-report">
+  <h2>Does something look wrong?</h2>
+  <p class="small muted">If a date or task name on the chart isn't right, tell the project's scrum master.</p>
+  {% if form.errors %}
+    <div class="msg msg-error">
+      The report wasn't sent. {% for error in form.non_field_errors %}{{ error }}.{% empty %}Fix the field marked below.{% endfor %}
+    </div>
+  {% endif %}
+  <form method="post" action="{{ action }}" novalidate>
+    {% csrf_token %}
+    <div class="field">
+      <label for="{{ form.message.id_for_label }}">{{ form.message.label }}</label>
+      {{ form.message }}{{ form.message.errors }}
+    </div>
+    <button>Report to scrum master</button>
+  </form>
+</div>
