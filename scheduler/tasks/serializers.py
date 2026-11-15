@@ -3,6 +3,8 @@
 from rest_framework import serializers
 
 from .models import Task, TaskKind, TaskStatus
+from .standup import WINDOWS
+from .standup_service import SECTIONS
 
 
 class TaskSerializer(serializers.ModelSerializer):
@@ -45,3 +47,27 @@ class BlockSerializer(serializers.Serializer):
 
 class AssigneeSerializer(serializers.Serializer):
     assignee_id = serializers.IntegerField(allow_null=True)
+
+
+class StandupQuerySerializer(serializers.Serializer):
+    """?window=since_last|today|24h|custom&from=YYYY-MM-DD&to=YYYY-MM-DD&sections=tiles,people"""
+
+    window = serializers.ChoiceField(choices=list(WINDOWS), required=False)
+    to = serializers.DateField(required=False)
+    sections = serializers.CharField(required=False)
+
+    def get_fields(self):
+        fields = super().get_fields()
+        fields["from"] = serializers.DateField(required=False)  # "from" can't be an attribute name
+        return fields
+
+    def validate_sections(self, value):
+        wanted = [s for s in value.split(",") if s]
+        unknown = set(wanted) - set(SECTIONS)
+        if unknown:
+            raise serializers.ValidationError(f"Unknown sections: {', '.join(sorted(unknown))}")
+        return wanted
+
+
+class StandupOrderSerializer(serializers.Serializer):
+    user_ids = serializers.ListField(child=serializers.IntegerField(), allow_empty=True)

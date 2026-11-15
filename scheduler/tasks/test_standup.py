@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
+from rest_framework.test import APIClient
 
 from common.errors import InvalidStandupOrder, InvalidTask, InvalidWindow, NotAProjectMember
 from notifications.publisher import InMemoryPublisher
@@ -413,3 +414,64 @@ class StandupPerformance(StandupFixture):
         self.assertTrue(data["timeline"]["grouped"])
         self.assertTrue(all("error" not in data[s] for s in ("tiles", "people", "blockers")
                             if isinstance(data[s], dict)))
+
+
+# ---- API: one endpoint, members only (AC1, AC8) -----------------------------
+class StandupApi(StandupFixture):
+    def setUp(self):
+        super().setUp()
+        self.add("Design")
+        self.api = APIClient()
+        self.url = reverse("project-standup-api", args=[self.project.pk])
+
+    def test_member_gets_every_section(self):
+        self.api.force_authenticate(self.alice)
+        response = self.api.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        for key in ("window", "previous_window", "generated_at", "tiles", "tasks", "timeline",
+                    "people", "schedule_health", "blockers"):
+            self.assertIn(key, response.data)
+        self.assertEqual(response.data["window"]["key"], "since_last")
+
+    def test_non_members_get_403(self):
+        from accounts.models import Profile, Role
+        client = User.objects.create_user("client2", password="pw")
+        Profile.objects.create(user=client, role=Role.CLIENT)
+        self.project.owner = client
+        self.project.save()
+        for user in (self.outsider, client):
+            with self.subTest(user.username):
+                self.api.force_authenticate(user)
+                self.assertEqual(self.api.get(self.url).status_code, 403)
+
+    def test_anonymous_gets_403(self):
+        self.assertEqual(self.api.get(self.url).status_code, 403)
+
+    def test_window_options(self):
+        self.api.force_authenticate(self.alice)
+        for query, key in [({"window": "today"}, "today"), ({"window": "24h"}, "24h"),
+                           ({"window": "custom", "from": "2026-11-02", "to": "2026-11-06"}, "custom")]:
+            with self.subTest(key):
+                self.assertEqual(self.api.get(self.url, query).data["window"]["key"], key)
+
+    def test_bad_window_is_400(self):
+        self.api.force_authenticate(self.alice)
+        for query in [{"window": "forever"}, {"window": "custom", "from": "2026-11-06", "to": "2026-11-02"},
+                      {"window": "custom"}, {"sections": "tiles,weather"}]:
+            with self.subTest(query=query):
+                self.assertEqual(self.api.get(self.url, query).status_code, 400)
+
+    def test_retry_one_section(self):
+        self.api.force_authenticate(self.alice)
+        data = self.api.get(self.url, {"sections": "people"}).data
+        self.assertIn("people", data)
+        self.assertNotIn("tiles", data)
+
+    def test_save_order(self):
+        self.api.force_authenticate(self.bob)
+        url = reverse("project-standup-order", args=[self.project.pk])
+        response = self.api.put(url, {"user_ids": [self.bob.pk, self.sam.pk]}, format="json")
+        self.assertEqual(response.data["user_ids"], [self.bob.pk, self.sam.pk, self.alice.pk])
+        self.assertEqual(self.api.put(url, {"user_ids": [self.outsider.pk]}, format="json").status_code, 400)
+        self.api.force_authenticate(self.outsider)
+        self.assertEqual(self.api.put(url, {"user_ids": []}, format="json").status_code, 403)

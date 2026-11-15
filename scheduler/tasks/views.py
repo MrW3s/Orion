@@ -11,16 +11,18 @@ result. No business rules here, so the views stay thin and highly cohesive.
     POST  /api/tasks/<task_id>/block/         standup story: mark blocked, with a reason
     DELETE /api/tasks/<task_id>/block/        standup story: unblock
     PATCH /api/tasks/<task_id>/assignee/      standup story: reassign
+    GET   /api/projects/<project_id>/standup/ standup story: everything the standup page shows
+    PUT   /api/projects/<project_id>/standup/order/  standup story: the cards' speaking order
 """
 from rest_framework import status as http
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .container import task_service
+from .container import standup_service, task_service
 from .serializers import (
     AssigneeSerializer, BlockSerializer, CreateTaskSerializer, DependenciesSerializer,
-    StatusUpdateSerializer, TaskSerializer,
+    StandupOrderSerializer, StandupQuerySerializer, StatusUpdateSerializer, TaskSerializer,
 )
 from .services import NewTask
 
@@ -95,3 +97,26 @@ class TaskAssigneeView(APIView):
         body.is_valid(raise_exception=True)
         task = task_service().reassign(request.user, task_id, body.validated_data["assignee_id"])
         return Response(TaskSerializer(task).data)
+
+
+class StandupView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, project_id: int):
+        query = StandupQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        q = query.validated_data
+        return Response(standup_service().standup(
+            request.user, project_id, window=q.get("window"), start=q.get("from"),
+            end=q.get("to"), sections=q.get("sections"),
+        ))
+
+
+class StandupOrderView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, project_id: int):
+        body = StandupOrderSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        order = standup_service().save_order(request.user, project_id, body.validated_data["user_ids"])
+        return Response({"user_ids": order})
