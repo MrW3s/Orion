@@ -241,12 +241,64 @@
     return fill(container, h("ol", { class: "people" }, cards));
   }
 
+  // ---- Schedule health (AC6) ------------------------------------------------
+  function renderHealth(container, health, ctx = {}) {
+    const h = maker(container.ownerDocument);
+    const move = (t) => `${fmt.day(t.from)} → ${fmt.day(t.to)} (${t.days > 0 ? "+" : ""}${t.days} day${Math.abs(t.days) === 1 ? "" : "s"})`;
+    const forecast = health.forecast || {};
+    const forecastBox = forecast.available
+      ? h("div", { class: "forecast" }, `On-time probability: ${Math.round(forecast.probability * 100)}%`)
+      : h("div", { class: "forecast muted small" }, h("strong", { text: "On-time forecast: not available. " }),
+          forecast.reason || "");
+    if (!health.critical_path || !health.critical_path.length) {
+      return fill(container, h("p", { class: "empty", text: "No tasks scheduled yet, so there's no critical path." }),
+                  forecastBox);
+    }
+    return fill(container,
+      h("p", {}, "Projected end: ", h("strong", { text: fmt.day(health.project_end) })),
+      h("h3", { text: "Critical path" }),
+      h("table", { class: "task-table critical-path" },
+        h("thead", {}, h("tr", {}, ["Task", "Due", "Status"].map((l) => h("th", { scope: "col", text: l })))),
+        h("tbody", {}, health.critical_path.map((t) => h("tr", { class: t.slipped ? "slipped" : null },
+          h("td", {}, t.title, t.slipped ? h("span", { class: "status status-critical flag", text: "Slipped" }) : null),
+          h("td", { text: fmt.day(t.due) }),
+          h("td", { text: STATUS_LABEL[t.status] || t.status }))))),
+      h("h3", { text: "Slipped in this window" }),
+      health.slipped.length
+        ? h("ul", { class: "slips" }, health.slipped.map((t) => h("li", {}, h("strong", { text: t.title }), ": ", move(t))))
+        : h("p", { class: "empty", text: "No critical-path task slipped in this window." }),
+      health.downstream_moved.length ? [
+        h("h3", { text: "Moved downstream" }),
+        h("ul", { class: "downstream" }, health.downstream_moved.map((t) => h("li", {},
+          h("strong", { text: t.title }), ": ", move(t),
+          h("span", { class: "small muted", text: ` because ${t.because_of.join(", ")} slipped` })))),
+      ] : null,
+      forecastBox);
+  }
+  const STATUS_LABEL = { todo: "Not started", in_progress: "In progress", complete: "Complete" };
+
+  // ---- Blockers (AC7) ---------------------------------------------------------
+  function renderBlockers(container, blockers, ctx = {}) {
+    const h = maker(container.ownerDocument);
+    if (!blockers || !blockers.length) return renderEmpty(container, "Nothing is blocked.");
+    return fill(container, h("ul", { class: "blockers" }, blockers.map((b) => h("li", {
+      class: "blocker" + (b.stale ? " stale" : ""), dataset: { taskId: String(b.id) } },
+      h("div", { class: "blocker-head" },
+        h("strong", { text: b.title }),
+        h("span", { class: "days", text: `${b.days_blocked} working day${b.days_blocked === 1 ? "" : "s"}` })),
+      h("div", { class: "small" }, `${b.owner || "Unassigned"} · since ${fmt.dateTime(b.since)}`),
+      b.reason ? h("div", { class: "small reason", text: b.reason }) : null,
+      b.stale ? h("div", { class: "small stale-note", text: "Blocked for more than 2 working days" }) : null))));
+  }
+
   // Section name -> renderer(container, data, ctx). The other sections add themselves below.
   const RENDERERS = {
     tiles: (el, data, ctx) => renderTiles(el, data, ctx),
     tasks: (el, data, ctx) => renderTaskList(el, data, ctx),
     timeline: (el, data, ctx) => renderTimeline(el, data, ctx),
     people: (el, data, ctx) => renderPeople(el, data, ctx),
+    schedule_health: (el, data, ctx) => renderHealth(el, data, ctx),
+    blockers: (el, data, ctx) => renderBlockers(el, data, ctx),
   };
 
   // ---- The page -----------------------------------------------------------
@@ -451,6 +503,6 @@
     return { ready, load, ctx, nextSpeaker, stop: () => timer && win.clearInterval(timer) };
   }
 
-  return { start, RENDERERS, renderTiles, renderTaskList, renderTimeline, renderPeople, renderEmpty, renderError,
+  return { start, RENDERERS, renderTiles, renderTaskList, renderTimeline, renderPeople, renderHealth, renderBlockers, renderEmpty, renderError,
            renderSkeleton, maker, fill, fmt };
 });

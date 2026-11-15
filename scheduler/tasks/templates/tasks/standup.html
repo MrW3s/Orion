@@ -68,7 +68,16 @@
         <div class="sec-body">{% include "tasks/_standup_skeleton.html" %}</div>
       </section>
     </div>
-    <div id="standup-side"></div>
+    <div>
+      <section class="card sec" data-section="blockers" aria-labelledby="h-blockers">
+        <h2 id="h-blockers">Blockers</h2>
+        <div class="sec-body">{% include "tasks/_standup_skeleton.html" %}</div>
+      </section>
+      <section class="card sec" data-section="schedule_health" aria-labelledby="h-health">
+        <h2 id="h-health">Schedule health</h2>
+        <div class="sec-body">{% include "tasks/_standup_skeleton.html" %}</div>
+      </section>
+    </div>
   </div>
 
   <section class="card sec" data-section="tasks" aria-labelledby="h-tasks">
