@@ -130,7 +130,10 @@
     reassigned: "⇄", reopened: "↩", mixed: "•",
   };
   const TIP_LIMIT = 8;
-  const ROWS = 3;  // markers closer than MIN_GAP% share the track on different rows
+  const ROWS = 3;  // markers closer than MIN_GAP% go on different rows...
+  // ...and when every row is taken, the marker is nudged right of the closest one, so bunched
+  // activity (e.g. all on Friday, in a Friday-to-Monday window) stays readable. The tooltip
+  // always shows the exact time.
 
   function renderTimeline(container, timeline, ctx = {}) {
     const h = maker(container.ownerDocument);
@@ -146,10 +149,13 @@
     const MIN_GAP = 2.5;
     const lastLeft = new Array(ROWS).fill(-Infinity);
 
-    const markers = timeline.markers.map((marker, i) => {
-      const left = Math.min(100, Math.max(0, ((Date.parse(marker.at) - start) / span) * 100));
+    const markers = timeline.markers.map((marker) => {
+      let left = Math.min(100, Math.max(0, ((Date.parse(marker.at) - start) / span) * 100));
       let row = lastLeft.findIndex((prev) => left - prev >= MIN_GAP);
-      if (row === -1) row = i % ROWS;
+      if (row === -1) {
+        row = lastLeft.indexOf(Math.min(...lastLeft));
+        left = Math.min(100, lastLeft[row] + MIN_GAP);
+      }
       lastLeft[row] = left;
       const first = marker.events[0];
       const label = marker.count > 1
@@ -158,7 +164,8 @@
       const tip = h("div", { class: "marker-tip" + (left > 65 ? " to-left" : ""), role: "tooltip" },
         marker.events.slice(0, TIP_LIMIT).map((e) => h("div", {},
           h("span", { class: `swatch kind-${e.kind}`, "aria-hidden": "true", text: EVENT_STYLE[e.kind] }),
-          h("strong", { text: e.task }), ` · ${e.person} · ${fmt.time(e.at)}`)),
+          h("span", {}, h("strong", { text: e.task }),
+            h("br"), `${kindLabel(timeline, e.kind)} · ${e.person} · ${fmt.time(e.at)}`))),
         marker.count > TIP_LIMIT ? h("div", { class: "muted", text: `and ${marker.count - TIP_LIMIT} more` }) : null);
       return h("button", {
         type: "button", class: `marker kind-${marker.kind}`, "aria-label": label,

@@ -47,7 +47,7 @@
                   border-radius: 999px; background: var(--surface); color: var(--kind);
                   border: 1px solid var(--kind); font-size: 11px; line-height: 16px; }
   .marker-tip { display: none; position: absolute; top: 30px; left: 0; z-index: 4; width: max-content;
-                max-width: 320px; padding: 8px 10px; border-radius: 6px; background: var(--surface);
+                max-width: min(320px, 80vw); padding: 8px 10px; border-radius: 6px; background: var(--surface);
                 color: var(--text); border: 1px solid var(--border); box-shadow: 0 4px 14px rgba(0,0,0,.12);
                 text-align: left; font-size: 13px; line-height: 1.5; }
   .marker-tip.to-left { left: auto; right: 0; }
@@ -57,7 +57,8 @@
   .ticks .tick:first-child { transform: none; } .ticks .tick:last-child { transform: translateX(-100%); }
   @media (max-width: 1024px) { .ticks .tick:nth-child(2), .ticks .tick:nth-child(4) { display: none; } }
   .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; list-style: none; padding: 0; margin: 8px 0 0; font-size: 13px; }
-  .legend li, .marker-tip div { display: flex; align-items: center; gap: 6px; }
+  .legend li { display: flex; align-items: center; gap: 6px; }
+  .marker-tip > div { display: flex; align-items: flex-start; gap: 8px; margin: 2px 0; }
   .swatch { display: inline-block; width: 18px; height: 18px; border-radius: 50%; background: var(--kind);
             color: #fff; font-size: 11px; line-height: 18px; text-align: center; flex: none; }
 
