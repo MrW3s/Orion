@@ -5,6 +5,7 @@
 {% block content %}
 <div class="page-head">
   <h1>{{ project.name }}</h1>
+  <a class="button secondary" href="{% url 'project-standup' project.pk %}">Standup</a>
   <a class="button" href="{% url 'project-gantt' project.pk %}">Gantt chart</a>
 </div>
 <p class="muted">Project starts {{ project.start_date|date:"M j, Y" }}</p>

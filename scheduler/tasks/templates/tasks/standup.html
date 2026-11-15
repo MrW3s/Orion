@@ -1,0 +1,62 @@
+{% extends "accounts/base.html" %}
+{% load static %}
+
+{% block title %}Standup · {{ project.name }} · Orion{% endblock %}
+{% block main_width %}1280px{% endblock %}
+
+{% block head %}{% include "tasks/_standup_styles.html" %}{% endblock %}
+
+{% block content %}
+<div id="standup"
+     data-api="{% url 'project-standup-api' project.pk %}"
+     data-order-url="{% url 'project-standup-order' project.pk %}"
+     data-page-url-template="{% url 'project-standup' 0 %}"
+     data-csrf="{{ csrf_token }}">
+
+  <div class="page-head standup-head">
+    <h1>Standup: {{ project.name }}</h1>
+    <label class="inline-label">Project
+      <select id="project-select" aria-label="Project">
+        {% for p in projects %}
+          <option value="{{ p.pk }}" {% if p.pk == project.pk %}selected{% endif %}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <a class="button secondary" href="{% url 'project-schedule' project.pk %}">Schedule</a>
+  </div>
+
+  <form id="window-form" class="toolbar" novalidate>
+    <label class="inline-label">Window
+      <select id="window-select" name="window">
+        {% for key, label in windows.items %}
+          <option value="{{ key }}" {% if key == window %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <span id="custom-range" {% if window != "custom" %}hidden{% endif %}>
+      <label class="inline-label">From <input type="date" name="from" value="{{ date_from }}"></label>
+      <label class="inline-label">To <input type="date" name="to" value="{{ date_to }}"></label>
+      <button type="submit">Apply</button>
+    </span>
+    <span id="window-label" class="muted"></span>
+    <span class="spacer"></span>
+    <span id="last-updated" class="muted small" aria-live="polite"></span>
+    <button type="button" id="refresh" class="secondary-btn">Refresh</button>
+    <button type="button" id="present" class="secondary-btn" aria-pressed="false">Present</button>
+  </form>
+  <div id="window-error" class="msg msg-error" hidden></div>
+
+  <section class="card sec" data-section="tiles" aria-labelledby="h-tiles">
+    <h2 id="h-tiles" class="sr-only">Summary</h2>
+    <div class="sec-body"><div class="tiles">{% for i in "123456" %}<div class="tile skeleton"></div>{% endfor %}</div></div>
+  </section>
+
+  <section class="card sec" data-section="tasks" aria-labelledby="h-tasks">
+    <h2 id="h-tasks">Tasks</h2>
+    <div class="sec-body">{% include "tasks/_standup_skeleton.html" %}</div>
+  </section>
+</div>
+
+<script src="{% static 'tasks/standup.js' %}"></script>
+<script>Standup.start(document.getElementById("standup"));</script>
+{% endblock %}

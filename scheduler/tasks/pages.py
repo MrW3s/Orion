@@ -8,6 +8,9 @@
     POST /projects/<id>/gantt/  Gantt story: report that the chart looks wrong
     POST /projects/<id>/gantt/reports/<report_id>/resolve/
                                 Gantt story: a project manager marks a report resolved
+    GET  /projects/<id>/standup/
+                                standup story: the page shell; standup.js fills it from
+                                GET /api/projects/<id>/standup/
 
 The schedule page also lists the notes the project's client has left (client
 dashboard story). A client who opens either page is sent to their own
@@ -24,8 +27,9 @@ from django.views.decorators.http import require_POST
 
 from accounts.services import RoleService
 from common.errors import DomainError, NotAllowed, NotAProjectMember
+from projects.access import ProjectAccess
 
-from .container import task_service
+from .container import standup_service, task_service
 from .forms import AddTaskForm, EditDependenciesForm, GanttReportForm, UpdateTaskForm
 from .gantt import build_chart
 from .services import NewTask
@@ -142,6 +146,23 @@ def gantt(request, project_id: int):
         "show_risk": service.can_view_risk(request.user),
         "can_review": can_review,
         "reports": service.open_gantt_reports(request.user, project_id) if can_review else [],
+    })
+
+
+@login_required
+def standup(request, project_id: int):
+    service = task_service()
+    try:
+        project = service.get_project(request.user, project_id)
+    except NotAProjectMember as exc:
+        return _turn_away(request, project_id, exc)
+    return render(request, "tasks/standup.html", {
+        "project": project,
+        "projects": ProjectAccess().member_projects(request.user),
+        "windows": standup_service().window_choices(),
+        "window": request.GET.get("window", "since_last"),
+        "date_from": request.GET.get("from", ""),
+        "date_to": request.GET.get("to", ""),
     })
 
 

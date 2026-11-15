@@ -1,0 +1,55 @@
+<style>
+  /* Standup page. Shares the variables and .card / .status classes in accounts/base.html. */
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .standup-head { align-items: center; }
+  .inline-label { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-weight: 600; font-size: 14px; }
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 16px; }
+  .toolbar .spacer { flex: 1; }
+  #custom-range { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  #custom-range[hidden] { display: none; }
+  .secondary-btn { background: #e8eefc; color: var(--accent); }
+  .secondary-btn[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  .sec h2 { display: flex; align-items: center; gap: 10px; }
+  .sec h2 .actions { margin-left: auto; font-size: 14px; font-weight: 400; }
+  .standup-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 0 20px; }
+  .standup-grid > div { min-width: 0; }
+  @media (max-width: 1024px) { .standup-grid { grid-template-columns: minmax(0, 1fr); } }
+  #standup, #standup * { overflow-wrap: anywhere; }
+
+  /* Tiles */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .tile { display: block; width: 100%; text-align: left; padding: 12px 14px; border-radius: 8px;
+          background: var(--bg); color: var(--text); border: 2px solid transparent; min-height: 92px; }
+  .tile:hover, .tile:focus-visible { border-color: var(--border); }
+  .tile.active { border-color: var(--accent); background: #e8eefc; }
+  .tile .label { font-size: 13px; color: var(--muted); font-weight: 600; }
+  .tile .count { font-size: 28px; font-weight: 700; line-height: 1.2; }
+  .tile .delta { font-size: 13px; }
+  .delta.up { color: var(--ok-text); } .delta.down { color: var(--err-text); } .delta.same { color: var(--muted); }
+  .delta.bad.up { color: var(--err-text); } .delta.bad.down { color: var(--ok-text); }
+
+  /* Task list */
+  .filter-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+  .task-table td, .task-table th { padding: 8px 6px; }
+  .flag { display: inline-block; margin-left: 4px; }
+
+  /* Loading, empty and error states */
+  .skeleton { background: linear-gradient(90deg, #eef0f3 25%, #f7f8fa 50%, #eef0f3 75%);
+              background-size: 200% 100%; animation: shimmer 1.2s infinite; border-radius: 6px; }
+  .skeleton-lines .skeleton { height: 14px; margin: 10px 0; }
+  .skeleton-lines .skeleton.short { width: 60%; }
+  .tile.skeleton { border: 0; }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+  .empty { color: var(--muted); margin: 4px 0; }
+  .sec-error { display: flex; gap: 12px; align-items: center; }
+
+  /* Present mode: no nav, bigger text, for the screen everyone is looking at */
+  body.present > header, body.present .msg-success { display: none; }
+  body.present main { max-width: none; padding: 0 24px; margin-top: 16px; }
+  body.present #standup { font-size: 19px; }
+  body.present #standup h1 { font-size: 30px; }
+  body.present #standup h2 { font-size: 22px; }
+  body.present .tile .count { font-size: 40px; }
+  body.present .tile .label, body.present .tile .delta, body.present #standup .small { font-size: 16px; }
+</style>

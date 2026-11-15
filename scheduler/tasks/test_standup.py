@@ -475,3 +475,39 @@ class StandupApi(StandupFixture):
         self.assertEqual(self.api.put(url, {"user_ids": [self.outsider.pk]}, format="json").status_code, 400)
         self.api.force_authenticate(self.outsider)
         self.assertEqual(self.api.put(url, {"user_ids": []}, format="json").status_code, 403)
+
+
+# ---- The page (AC1) -------------------------------------------------------
+class StandupPage(StandupFixture):
+    def test_member_sees_the_page_with_a_project_selector(self):
+        other = Project.objects.create(name="Website", start_date=START)
+        other.members.add(self.alice)
+        self.client.force_login(self.alice)
+        response = self.client.get(reverse("project-standup", args=[self.project.pk]))
+        self.assertContains(response, 'id="standup"')
+        self.assertContains(response, reverse("project-standup-api", args=[self.project.pk]))
+        self.assertContains(response, "tasks/standup.js")
+        self.assertContains(response, ">Website</option>")
+
+    def test_window_from_the_url_is_preselected(self):
+        self.client.force_login(self.alice)
+        response = self.client.get(reverse("project-standup", args=[self.project.pk]),
+                                   {"window": "custom", "from": "2026-11-02", "to": "2026-11-06"})
+        self.assertContains(response, '<option value="custom" selected>')
+        self.assertContains(response, 'value="2026-11-02"')
+
+    def test_outsider_gets_403_and_client_goes_to_their_dashboard(self):
+        from accounts.models import Profile, Role
+        self.client.force_login(self.outsider)
+        url = reverse("project-standup", args=[self.project.pk])
+        self.assertEqual(self.client.get(url).status_code, 403)
+        client = User.objects.create_user("client2", password="pw")
+        Profile.objects.create(user=client, role=Role.CLIENT)
+        self.client.force_login(client)
+        self.assertRedirects(self.client.get(url), reverse("client-project", args=[self.project.pk]),
+                             fetch_redirect_response=False)
+
+    def test_schedule_page_links_to_the_standup(self):
+        self.client.force_login(self.alice)
+        response = self.client.get(reverse("project-schedule", args=[self.project.pk]))
+        self.assertContains(response, reverse("project-standup", args=[self.project.pk]))
