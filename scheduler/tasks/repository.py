@@ -14,7 +14,7 @@ from django.utils import timezone
 from common.errors import ReportNotFound, TaskNotFound
 from scheduling import ScheduleResult
 
-from .models import GanttReport, Task
+from .models import GanttReport, StandupOrder, Task, TaskEvent
 
 
 class TaskRepository:
@@ -38,24 +38,31 @@ class TaskRepository:
 
     def create(self, *, project_id: int, created_by, title: str, description: str,
                duration_days: int, planned_start: date, assignee_id: int | None,
-               depends_on_ids: Iterable[int]) -> Task:
+               depends_on_ids: Iterable[int], kind: str = "task") -> Task:
         task = Task.objects.create(
             project_id=project_id, created_by=created_by, title=title,
             description=description, duration_days=duration_days,
-            planned_start=planned_start, assignee_id=assignee_id,
+            planned_start=planned_start, assignee_id=assignee_id, kind=kind,
         )
         task.depends_on.set(list(depends_on_ids))
         return task
 
-    def save_schedule(self, result: ScheduleResult) -> None:
+    def save_schedule(self, result: ScheduleResult) -> list[tuple[Task, date, date]]:
+        """Store the engine's dates. Returns (task, old end, new end) for every
+        task whose end date moved, so the caller can log it (standup story).
+        A task scheduled for the first time isn't a move."""
         tasks = list(Task.objects.filter(pk__in=result.tasks.keys()))
+        moved = []
         for task in tasks:
             slot = result.tasks[task.pk]
+            if task.scheduled_end is not None and task.scheduled_end != slot.end:
+                moved.append((task, task.scheduled_end, slot.end))
             task.scheduled_start, task.scheduled_end = slot.start, slot.end
             task.slack_days, task.is_critical = slot.slack_days, slot.is_critical
         Task.objects.bulk_update(
             tasks, ["scheduled_start", "scheduled_end", "slack_days", "is_critical"],
         )
+        return moved
 
     def set_dependencies(self, task: Task, depends_on_ids: Iterable[int]) -> None:
         task.depends_on.set(list(depends_on_ids))
@@ -64,6 +71,42 @@ class TaskRepository:
         task.status = status
         task.save(update_fields=["status", "updated_at"])
         return task
+
+    def save_assignee(self, task: Task, assignee_id: int | None) -> Task:
+        task.assignee_id = assignee_id
+        task.save(update_fields=["assignee", "updated_at"])
+        return task
+
+    def save_blocked(self, task: Task, since, reason: str) -> Task:
+        task.blocked_since, task.blocked_reason = since, reason
+        task.save(update_fields=["blocked_since", "blocked_reason", "updated_at"])
+        return task
+
+    # ---- Activity log (standup story) ----------------------------------
+    def log_event(self, task: Task, kind: str, actor, old_value="", new_value="") -> TaskEvent:
+        return TaskEvent.objects.create(
+            project_id=task.project_id, task=task, actor=actor, kind=kind,
+            old_value="" if old_value is None else str(old_value),
+            new_value="" if new_value is None else str(new_value),
+        )
+
+    def events_since(self, project_id: int, since) -> list[TaskEvent]:
+        """Every event on the project from `since` until now, oldest first."""
+        return list(
+            TaskEvent.objects.filter(project_id=project_id, created_at__gte=since)
+            .select_related("actor").order_by("created_at", "id")
+        )
+
+    def standup_order(self, project_id: int) -> list[int]:
+        return list(StandupOrder.objects.filter(project_id=project_id)
+                    .values_list("user_id", flat=True))
+
+    def save_standup_order(self, project_id: int, user_ids: list[int]) -> None:
+        StandupOrder.objects.filter(project_id=project_id).delete()
+        StandupOrder.objects.bulk_create([
+            StandupOrder(project_id=project_id, user_id=uid, position=i)
+            for i, uid in enumerate(user_ids)
+        ])
 
     # ---- Gantt chart reports -----------------------------------------
     def create_gantt_report(self, *, project_id: int, reporter, message: str) -> GanttReport:

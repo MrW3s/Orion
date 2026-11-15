@@ -8,6 +8,9 @@ result. No business rules here, so the views stay thin and highly cohesive.
     PATCH /api/tasks/<task_id>/status/        story 2: change status
     GET   /api/projects/<project_id>/risk/    PM story: ordering + critical path
     PUT   /api/tasks/<task_id>/dependencies/  PM story: change dependencies (cycles rejected)
+    POST  /api/tasks/<task_id>/block/         standup story: mark blocked, with a reason
+    DELETE /api/tasks/<task_id>/block/        standup story: unblock
+    PATCH /api/tasks/<task_id>/assignee/      standup story: reassign
 """
 from rest_framework import status as http
 from rest_framework.permissions import IsAuthenticated
@@ -16,7 +19,8 @@ from rest_framework.views import APIView
 
 from .container import task_service
 from .serializers import (
-    CreateTaskSerializer, DependenciesSerializer, StatusUpdateSerializer, TaskSerializer,
+    AssigneeSerializer, BlockSerializer, CreateTaskSerializer, DependenciesSerializer,
+    StatusUpdateSerializer, TaskSerializer,
 )
 from .services import NewTask
 
@@ -66,4 +70,28 @@ class TaskDependenciesView(APIView):
         body.is_valid(raise_exception=True)
         task = task_service().set_dependencies(request.user, task_id,
                                                body.validated_data["depends_on_ids"])
+        return Response(TaskSerializer(task).data)
+
+
+class TaskBlockView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, task_id: int):
+        body = BlockSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        task = task_service().set_blocked(request.user, task_id, body.validated_data["reason"])
+        return Response(TaskSerializer(task).data)
+
+    def delete(self, request, task_id: int):
+        task = task_service().unblock(request.user, task_id)
+        return Response(TaskSerializer(task).data)
+
+
+class TaskAssigneeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, task_id: int):
+        body = AssigneeSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        task = task_service().reassign(request.user, task_id, body.validated_data["assignee_id"])
         return Response(TaskSerializer(task).data)

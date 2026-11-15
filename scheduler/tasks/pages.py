@@ -3,6 +3,7 @@
     GET  /projects/<id>/        the project's schedule + an "Add a task" form
     POST /projects/<id>/        story 1: add a task from the form
                                 PM story: change what a task depends on (cycles are rejected)
+                                standup story: change a task's status, assignee or blocked state
     GET  /projects/<id>/gantt/  Gantt story: one bar per task, in dependency order
     POST /projects/<id>/gantt/  Gantt story: report that the chart looks wrong
     POST /projects/<id>/gantt/reports/<report_id>/resolve/
@@ -25,7 +26,7 @@ from accounts.services import RoleService
 from common.errors import DomainError, NotAllowed, NotAProjectMember
 
 from .container import task_service
-from .forms import AddTaskForm, EditDependenciesForm, GanttReportForm
+from .forms import AddTaskForm, EditDependenciesForm, GanttReportForm, UpdateTaskForm
 from .gantt import build_chart
 from .services import NewTask
 
@@ -46,12 +47,24 @@ def schedule(request, project_id: int):
         return _turn_away(request, project_id, exc)
     tasks = service.list_schedule(request.user, project_id)
 
-    # Two forms post to this page; the dependencies form's fields carry a "deps-" prefix.
-    editing_deps = request.method == "POST" and "deps-task_id" in request.POST
-    deps_form = EditDependenciesForm(request.POST if editing_deps else None,
-                                     tasks=tasks, prefix="deps")
-    form = AddTaskForm(request.POST if request.method == "POST" and not editing_deps else None,
-                       members=service.assignable_members(project_id), tasks=tasks)
+    # Three forms post to this page; the other two forms' fields carry a "deps-" / "upd-" prefix.
+    posted = request.POST if request.method == "POST" else {}
+    editing_deps, updating = "deps-task_id" in posted, "upd-task_id" in posted
+    members = service.assignable_members(project_id)
+    deps_form = EditDependenciesForm(posted if editing_deps else None, tasks=tasks, prefix="deps")
+    update_form = UpdateTaskForm(posted if updating else None, members=members, tasks=tasks,
+                                 prefix="upd")
+    form = AddTaskForm(posted if posted and not (editing_deps or updating) else None,
+                       members=members, tasks=tasks)
+
+    if update_form.is_valid():
+        try:
+            task = _apply_update(service, request.user, update_form.cleaned_data)
+        except DomainError as exc:
+            update_form.add_error(None, str(exc))
+        else:
+            messages.success(request, f"Updated “{task.title}”.")
+            return redirect("project-schedule", project_id=project_id)
 
     if deps_form.is_valid():
         try:
@@ -75,11 +88,26 @@ def schedule(request, project_id: int):
     can_review = service.can_review_gantt_reports(request.user)
     return render(request, "tasks/schedule.html", {
         "project": project, "tasks": tasks, "form": form, "deps_form": deps_form,
+        "update_form": update_form,
         # So the page can tick a task's current dependencies when it's picked
         "current_deps": {t.pk: [d.pk for d in t.depends_on.all()] for t in tasks},
+        # ...and fill in the update form with a task's current state
+        "current_state": {t.pk: {"status": t.status, "assignee_id": t.assignee_id,
+                                 "blocked": t.is_blocked, "blocked_reason": t.blocked_reason}
+                          for t in tasks},
         "show_risk": service.can_view_risk(request.user),  # PM story: slack + critical path
         "open_reports": len(service.open_gantt_reports(request.user, project_id)) if can_review else 0,
     })
+
+
+def _apply_update(service, user, data):
+    """Save only what changed; each service call is a no-op when nothing did."""
+    task_id = data["task_id"]
+    service.update_status(user, task_id, data["status"])
+    service.reassign(user, task_id, data["assignee_id"])
+    if data["blocked"]:
+        return service.set_blocked(user, task_id, data["blocked_reason"])
+    return service.unblock(user, task_id)
 
 
 @login_required

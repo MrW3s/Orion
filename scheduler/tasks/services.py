@@ -30,6 +30,13 @@
                               scrum master (the project's managers), who see the
                               open reports and resolve them.
 
+    Standup story             Every change a standup reviews is written to the
+                              activity log (TaskEvent) in the same transaction:
+                              created, status changes, blocked / unblocked
+                              (set_blocked, unblock), reassigned (reassign) and
+                              due dates the engine moved. StandupService
+                              (standup_service.py) reads that log.
+
 TaskService depends on its collaborators through the constructor
 (repository, scheduler, access, publisher, roles) rather than creating them itself.
 That keeps coupling low: each one can be swapped, e.g. an in-memory
@@ -41,6 +48,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from django.db import transaction
+from django.utils import timezone
 
 from accounts.services import RoleService
 from common.errors import InvalidDependency, InvalidReport, InvalidTask, NotAllowed
@@ -49,10 +57,18 @@ from notifications.publisher import EventPublisher
 from projects.access import ProjectAccess
 from scheduling import CycleError, Scheduler, TaskNode
 
-from .models import GanttReport, Task, TaskStatus
+from .models import GanttReport, Task, TaskEventKind, TaskKind, TaskStatus
 from .repository import TaskRepository
 
 REPORT_MAX_LENGTH = 1000
+BLOCKED_REASON_MAX_LENGTH = 500
+
+# Which activity-log entry a status change writes.
+EVENT_FOR_STATUS = {
+    TaskStatus.IN_PROGRESS: TaskEventKind.IN_PROGRESS,
+    TaskStatus.COMPLETE: TaskEventKind.DONE,
+    TaskStatus.TODO: TaskEventKind.REOPENED,
+}
 
 
 @dataclass(frozen=True)
@@ -65,6 +81,7 @@ class NewTask:
     description: str = ""
     assignee_id: int | None = None
     depends_on_ids: list[int] = field(default_factory=list)
+    kind: str = TaskKind.TASK  # "task" or "bug"
 
     @property
     def duration_days(self) -> int:
@@ -104,11 +121,9 @@ class TaskService:
     def add_task(self, user, project_id: int, new: NewTask) -> Task:
         self._access.require_member(user, project_id)
         self._check_name_and_dates(project_id, new)
-        if new.assignee_id is not None and not self._access.is_member_id(new.assignee_id, project_id):
-            raise InvalidTask("Assignee must be a member of the project")
-        if new.assignee_id is not None and new.assignee_id not in {
-                u.pk for u in self.assignable_members(project_id)}:
-            raise InvalidTask("Clients can't be assigned tasks")
+        if new.kind not in TaskKind.values:
+            raise InvalidTask(f"Unknown task kind {new.kind!r}")
+        self._check_assignee(project_id, new.assignee_id)
         self._check_dependencies_in_project(project_id, new.depends_on_ids)
 
         with transaction.atomic():
@@ -116,9 +131,10 @@ class TaskService:
                 project_id=project_id, created_by=user, title=new.title,
                 description=new.description, duration_days=new.duration_days,
                 planned_start=new.start_date, assignee_id=new.assignee_id,
-                depends_on_ids=new.depends_on_ids,
+                depends_on_ids=new.depends_on_ids, kind=new.kind,
             )
-            self._reschedule(project_id)
+            self._repo.log_event(task, TaskEventKind.CREATED, user, new_value=new.kind)
+            self._reschedule(project_id, user)
             # Only tell other clients once the data is really saved.
             transaction.on_commit(lambda: self._publisher.publish(
                 ProjectEvent.schedule_changed(project_id, reason="task_added", task_id=task.pk)
@@ -138,12 +154,68 @@ class TaskService:
             return task  # nothing changed, nothing to broadcast
 
         with transaction.atomic():
+            old = task.status
             task = self._repo.save_status(task, status)
+            self._repo.log_event(task, EVENT_FOR_STATUS[status], user, old, status)
             transaction.on_commit(lambda: self._publisher.publish(
                 ProjectEvent.status_changed(task.project_id, task_id=task.pk,
                                             status=task.status, changed_by=user.pk)
             ))
         return task
+
+    # ---- Standup story: blocked and reassigned ------------------------
+    def set_blocked(self, user, task_id: int, reason: str) -> Task:
+        """Mark a task blocked, saying why. Changing the reason of a task that's
+        already blocked keeps the date it was first blocked."""
+        reason = reason.strip()
+        if not reason:
+            raise InvalidTask("Say what the task is blocked on")
+        if len(reason) > BLOCKED_REASON_MAX_LENGTH:
+            raise InvalidTask(f"Keep the reason under {BLOCKED_REASON_MAX_LENGTH} characters")
+        task = self._repo.get(task_id)
+        self._access.require_member(user, task.project_id)
+        self._require(user, "update_status", "Your role can't change tasks")
+        if task.is_blocked and task.blocked_reason == reason:
+            return task
+        with transaction.atomic():
+            old_reason = task.blocked_reason if task.is_blocked else ""
+            task = self._repo.save_blocked(task, task.blocked_since or timezone.now(), reason)
+            self._repo.log_event(task, TaskEventKind.BLOCKED, user, old_reason, reason)
+            self._announce(task, "blocked", user)
+        return task
+
+    def unblock(self, user, task_id: int) -> Task:
+        task = self._repo.get(task_id)
+        self._access.require_member(user, task.project_id)
+        self._require(user, "update_status", "Your role can't change tasks")
+        if not task.is_blocked:
+            return task
+        with transaction.atomic():
+            old_reason = task.blocked_reason
+            task = self._repo.save_blocked(task, None, "")
+            self._repo.log_event(task, TaskEventKind.UNBLOCKED, user, old_reason, "")
+            self._announce(task, "unblocked", user)
+        return task
+
+    def reassign(self, user, task_id: int, assignee_id: int | None) -> Task:
+        task = self._repo.get(task_id)
+        self._access.require_member(user, task.project_id)
+        self._require(user, "update_status", "Your role can't change tasks")
+        self._check_assignee(task.project_id, assignee_id)
+        if task.assignee_id == assignee_id:
+            return task
+        with transaction.atomic():
+            old = task.assignee_id
+            task = self._repo.save_assignee(task, assignee_id)
+            self._repo.log_event(task, TaskEventKind.REASSIGNED, user, old, assignee_id)
+            self._announce(task, "reassigned", user)
+        return task
+
+    def _announce(self, task: Task, change: str, user) -> None:
+        transaction.on_commit(lambda: self._publisher.publish(
+            ProjectEvent.task_changed(task.project_id, task_id=task.pk, change=change,
+                                      changed_by=user.pk)
+        ))
 
     # ---- PM story ----------------------------------------------------
     def can_view_risk(self, user) -> bool:
@@ -173,7 +245,7 @@ class TaskService:
 
         with transaction.atomic():
             self._repo.set_dependencies(task, depends_on_ids)
-            self._reschedule(task.project_id)  # raises InvalidDependency on a cycle -> rollback
+            self._reschedule(task.project_id, user)  # raises InvalidDependency on a cycle -> rollback
             transaction.on_commit(lambda: self._publisher.publish(
                 ProjectEvent.schedule_changed(task.project_id, reason="dependencies_changed",
                                               task_id=task.pk)
@@ -268,18 +340,27 @@ class TaskService:
             raise InvalidTask(f"The start date can't be before the project starts "
                               f"({project_start:%b %d, %Y})")
 
+    def _check_assignee(self, project_id: int, assignee_id: int | None) -> None:
+        if assignee_id is None:
+            return
+        if not self._access.is_member_id(assignee_id, project_id):
+            raise InvalidTask("Assignee must be a member of the project")
+        if assignee_id not in {u.pk for u in self.assignable_members(project_id)}:
+            raise InvalidTask("Clients can't be assigned tasks")
+
     def _check_dependencies_in_project(self, project_id: int, dep_ids: list[int]) -> None:
         found = self._repo.ids_in_project(project_id, dep_ids)
         missing = set(dep_ids) - found
         if missing:
             raise InvalidDependency(f"Tasks {sorted(missing)} are not in this project")
 
-    def _reschedule(self, project_id: int) -> None:
+    def _reschedule(self, project_id: int, user=None) -> None:
         """Rebuild the project's dependency graph and store the new dates.
 
         This is the single place a "task committed to the schedule" triggers
         the engine: cycle detection, ordering, dates, slack and critical path
         all come back in one ScheduleResult and are saved via the repository.
+        Every due date that moves is logged, so the standup can show slips.
         """
         project = self._access.get_project(project_id)
         tasks = self._repo.list_for_project(project_id)
@@ -294,7 +375,9 @@ class TaskService:
                 f"Circular dependency: {loop}. Remove one of these dependencies "
                 f"before the schedule can be ordered."
             ) from exc
-        self._repo.save_schedule(result)
+        for task, old_end, new_end in self._repo.save_schedule(result):
+            self._repo.log_event(task, TaskEventKind.RESCHEDULED, user,
+                                 old_end.isoformat(), new_end.isoformat())
 
     @staticmethod
     def _nodes(tasks: list[Task]) -> list[TaskNode]:

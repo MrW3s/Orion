@@ -2,7 +2,7 @@
 (those live in services.py)."""
 from rest_framework import serializers
 
-from .models import Task, TaskStatus
+from .models import Task, TaskKind, TaskStatus
 
 
 class TaskSerializer(serializers.ModelSerializer):
@@ -13,7 +13,8 @@ class TaskSerializer(serializers.ModelSerializer):
         fields = [
             "id", "project", "title", "description", "assignee", "status",
             "duration_days", "planned_start", "depends_on", "scheduled_start", "scheduled_end",
-            "slack_days", "is_critical", "created_by", "updated_at",
+            "slack_days", "is_critical", "kind", "blocked_since", "blocked_reason",
+            "created_by", "updated_at",
         ]
         read_only_fields = fields
 
@@ -27,6 +28,7 @@ class CreateTaskSerializer(serializers.Serializer):
     depends_on_ids = serializers.ListField(
         child=serializers.IntegerField(), required=False, default=list,
     )
+    kind = serializers.ChoiceField(choices=TaskKind.choices, required=False, default=TaskKind.TASK)
 
 
 class DependenciesSerializer(serializers.Serializer):
@@ -35,3 +37,11 @@ class DependenciesSerializer(serializers.Serializer):
 
 class StatusUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=TaskStatus.choices)
+
+
+class BlockSerializer(serializers.Serializer):
+    reason = serializers.CharField()
+
+
+class AssigneeSerializer(serializers.Serializer):
+    assignee_id = serializers.IntegerField(allow_null=True)
