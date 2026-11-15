@@ -381,9 +381,14 @@ class TaskService:
 
     @staticmethod
     def _nodes(tasks: list[Task]) -> list[TaskNode]:
-        return [
-            TaskNode(id=t.pk, duration_days=t.duration_days,
-                     depends_on=frozenset(d.pk for d in t.depends_on.all()),
-                     earliest_start=t.planned_start)
-            for t in tasks
-        ]
+        return schedule_nodes(tasks)
+
+
+def schedule_nodes(tasks: list[Task]) -> list[TaskNode]:
+    """What the engine needs from each task (also used by StandupService)."""
+    return [
+        TaskNode(id=t.pk, duration_days=t.duration_days,
+                 depends_on=frozenset(d.pk for d in t.depends_on.all()),
+                 earliest_start=t.planned_start)
+        for t in tasks
+    ]

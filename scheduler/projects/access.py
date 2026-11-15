@@ -31,6 +31,12 @@ class ProjectAccess:
         if not self.is_member(user, project_id):
             raise NotAProjectMember(f"User is not a member of project {project_id}")
 
+    def member_projects(self, user) -> list[Project]:
+        """The projects a user can open as a team member (the standup's project selector)."""
+        if not self._roles.can(user, "view_schedule"):
+            return []
+        return list(Project.objects.filter(members=user).order_by("name"))
+
     def get_project(self, project_id: int) -> Project:
         return Project.objects.get(pk=project_id)
 

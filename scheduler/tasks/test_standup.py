@@ -1,22 +1,33 @@
 """Tests for the standup story, from its acceptance criteria (given / when / then)."""
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from unittest import mock
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 
-from common.errors import InvalidTask, NotAProjectMember
+from common.errors import InvalidStandupOrder, InvalidTask, InvalidWindow, NotAProjectMember
 from notifications.publisher import InMemoryPublisher
 from projects.access import ProjectAccess
 from projects.models import Project
 from scheduling import Scheduler
 
-from .models import TaskEvent, TaskEventKind, TaskStatus
+from .models import Task, TaskEvent, TaskEventKind, TaskStatus
 from .repository import TaskRepository
 from .services import NewTask, TaskService
+from .standup import (
+    build_window, group_markers, previous_working_day, value_at, working_days_between,
+)
+from .standup_service import StandupService
 
 User = get_user_model()
 START = date(2026, 10, 19)  # a Monday
+NY = ZoneInfo("America/New_York")  # settings.TIME_ZONE
+
+
+def at(day: int, hour: int = 9, minute: int = 0, month: int = 11) -> datetime:
+    return datetime(2026, month, day, hour, minute, tzinfo=NY)
 
 
 def new_task(title, days=1, start=START, **kwargs) -> NewTask:
@@ -41,6 +52,24 @@ class StandupFixture(TestCase):
 
     def kinds(self, task):
         return [e.kind for e in TaskEvent.objects.filter(task=task)]
+
+    def did(self, when, fn, *args, **kwargs):
+        """Run a service call, then date the log entries (and task) it wrote at `when`."""
+        before = set(TaskEvent.objects.values_list("pk", flat=True))
+        result = fn(*args, **kwargs)
+        new = TaskEvent.objects.exclude(pk__in=before)
+        new.update(created_at=when)
+        if isinstance(result, Task):
+            for task_id, kind in new.values_list("task_id", "kind"):
+                if kind == "created":
+                    Task.objects.filter(pk=task_id).update(created_at=when)
+                if kind == "blocked":
+                    Task.objects.filter(pk=task_id, blocked_since__isnull=False).update(blocked_since=when)
+            result.refresh_from_db()
+        return result
+
+    def add_at(self, when, title, days=1, user=None, **kw):
+        return self.did(when, self.add, title, days, user, **kw)
 
 
 class ActivityLogIsRecorded(StandupFixture):
@@ -132,3 +161,255 @@ class UpdateTaskFromSchedulePage(StandupFixture):
                                      "upd-assignee_id": "", "upd-blocked": "on"})
         self.assertContains(response, "Say what the task is blocked on.")
         self.assertEqual(self.kinds(task), ["created"])
+
+
+# ---- Time window (AC2) ------------------------------------------------
+class WindowRules(SimpleTestCase):
+    def test_since_last_standup_looks_back_to_the_previous_working_day(self):
+        window = build_window("since_last", at(11, 10), NY)  # Wednesday
+        self.assertEqual(window.start, at(10, 0))              # Tuesday 00:00
+        self.assertEqual(window.end, at(11, 10))
+        self.assertEqual(window.label, "Since Tue, Nov 10")
+
+    def test_monday_looks_back_to_friday(self):
+        window = build_window("since_last", at(16, 9, 30), NY)  # Monday
+        self.assertEqual(window.start, at(13, 0))                # Friday 00:00
+        self.assertEqual(window.label, "Since Fri, Nov 13")
+
+    def test_weekend_also_looks_back_to_friday(self):
+        self.assertEqual(previous_working_day(date(2026, 11, 15)), date(2026, 11, 13))  # Sunday
+        self.assertEqual(previous_working_day(date(2026, 11, 14)), date(2026, 11, 13))  # Saturday
+
+    def test_default_is_since_last_standup(self):
+        self.assertEqual(build_window(None, at(11, 10), NY).key, "since_last")
+
+    def test_today_and_last_24h(self):
+        self.assertEqual(build_window("today", at(11, 10), NY).start, at(11, 0))
+        self.assertEqual(build_window("24h", at(11, 10), NY).start, at(10, 10))
+
+    def test_custom_range_covers_whole_days(self):
+        window = build_window("custom", at(20, 10), NY, date(2026, 11, 2), date(2026, 11, 6))
+        self.assertEqual((window.start, window.end), (at(2, 0), at(7, 0)))
+        self.assertEqual(window.label, "Nov 2 – Nov 6")
+
+    def test_custom_range_ending_today_stops_at_now(self):
+        window = build_window("custom", at(11, 10), NY, date(2026, 11, 9), date(2026, 11, 11))
+        self.assertEqual(window.end, at(11, 10))
+
+    def test_bad_custom_ranges_are_rejected(self):
+        now = at(11, 10)
+        for start, end in [(None, date(2026, 11, 2)), (date(2026, 11, 6), date(2026, 11, 2)),
+                           (date(2026, 11, 12), date(2026, 11, 13)),
+                           (date(2026, 1, 1), date(2026, 11, 1))]:
+            with self.subTest(start=start, end=end), self.assertRaises(InvalidWindow):
+                build_window("custom", now, NY, start, end)
+        with self.assertRaises(InvalidWindow):
+            build_window("last_week", now, NY)
+
+    def test_previous_window_is_the_same_length_just_before(self):
+        window = build_window("since_last", at(11, 10), NY)
+        previous = window.previous()
+        self.assertEqual(previous.end, window.start)
+        self.assertEqual(previous.end - previous.start, window.end - window.start)
+
+    def test_working_days_skip_weekends(self):
+        self.assertEqual(working_days_between(date(2026, 11, 9), date(2026, 11, 11)), 2)  # Mon -> Wed
+        self.assertEqual(working_days_between(date(2026, 11, 13), date(2026, 11, 16)), 1)  # Fri -> Mon
+        self.assertEqual(working_days_between(date(2026, 11, 11), date(2026, 11, 11)), 0)
+
+    def test_value_at_reads_the_first_change_after_the_moment(self):
+        changes = [(at(9), "todo"), (at(10), "in_progress")]  # (when, old value)
+        self.assertEqual(value_at(at(8), "complete", changes), "todo")
+        self.assertEqual(value_at(at(9, 12), "complete", changes), "in_progress")
+        self.assertEqual(value_at(at(11), "complete", changes), "complete")
+
+
+# ---- Timeline grouping (AC4) --------------------------------------------
+class TimelineGrouping(SimpleTestCase):
+    def events(self, n, start=at(10, 9)):
+        return [{"at": start + timedelta(minutes=5 * i), "kind": "done" if i % 2 else "created"}
+                for i in range(n)]
+
+    def test_up_to_30_events_get_a_marker_each(self):
+        grouped, markers = group_markers(self.events(30), NY)
+        self.assertFalse(grouped)
+        self.assertEqual(len(markers), 30)
+        self.assertTrue(all(m.count == 1 for m in markers))
+
+    def test_more_than_30_events_share_one_marker_per_hour(self):
+        grouped, markers = group_markers(self.events(31), NY)  # 9:00 to 11:30, every 5 minutes
+        self.assertTrue(grouped)
+        self.assertEqual([m.count for m in markers], [12, 12, 7])
+        self.assertEqual(markers[0].at, at(10, 9))
+        self.assertEqual(markers[0].kind, "mixed")
+
+    def test_an_hour_of_one_kind_keeps_its_kind(self):
+        events = [{"at": at(10, 9, i), "kind": "done"} for i in range(31)]
+        _, markers = group_markers(events, NY)
+        self.assertEqual([(m.kind, m.count) for m in markers], [("done", 31)])
+
+
+# ---- Aggregation (AC3, 5, 6, 7) ------------------------------------------
+class StandupAggregation(StandupFixture):
+    """Wednesday Nov 11, 10:00. The window is "since last standup": Tuesday 00:00 to now.
+    The previous window is the 34 hours before that."""
+
+    NOW = at(11, 10)
+
+    def setUp(self):
+        super().setUp()
+        self.standups = StandupService(TaskRepository(), Scheduler(), ProjectAccess())
+        self.design = self.add_at(at(2), "Design", 2, assignee_id=self.alice.pk)
+        self.api = self.add_at(at(2), "API", user=self.bob, assignee_id=self.bob.pk)
+        self.did(at(6), self.service.set_blocked, self.bob, self.api.pk, "Waiting for API keys")
+        # Previous window (Sun 14:00 to Tue 00:00)
+        self.did(at(9, 11), self.service.update_status, self.alice, self.design.pk, "in_progress")
+        self.old_bug = self.add_at(at(9, 12), "Old bug", kind="bug")
+        # This window
+        self.did(at(10, 11), self.service.update_status, self.alice, self.design.pk, "complete")
+        self.did(at(10, 15), self.service.update_status, self.bob, self.api.pk, "in_progress")
+        self.crash = self.add_at(at(10, 9), "Crash on login", user=self.bob, kind="bug")
+
+    def standup(self, user=None, **kw):
+        return self.standups.standup(user or self.sam, self.project.pk, now=self.NOW, **kw)
+
+    def test_tiles_count_the_window_and_compare_with_the_one_before(self):
+        tiles = {t["key"]: t for t in self.standup()["tiles"]}
+        expect = {  # key: (count, previous, delta)
+            "completed": (1, 0, 1), "in_progress": (1, 1, 0), "blocked": (1, 1, 0),
+            "active_members": (2, 1, 1), "overdue": (3, 3, 0), "bugs_created": (1, 1, 0),
+        }
+        for key, numbers in expect.items():
+            with self.subTest(key):
+                t = tiles[key]
+                self.assertEqual((t["count"], t["previous"], t["delta"]), numbers)
+        self.assertEqual(tiles["completed"]["task_ids"], [self.design.pk])
+        self.assertEqual(tiles["bugs_created"]["task_ids"], [self.crash.pk])
+        self.assertEqual(tiles["overdue"]["task_ids"],
+                         sorted([self.api.pk, self.crash.pk, self.old_bug.pk]))
+
+    def test_unblocking_shows_in_the_blocked_delta(self):
+        self.did(at(11, 9), self.service.unblock, self.bob, self.api.pk)
+        blocked = next(t for t in self.standup()["tiles"] if t["key"] == "blocked")
+        self.assertEqual((blocked["count"], blocked["previous"], blocked["delta"]), (0, 1, -1))
+
+    def test_timeline_lists_the_window_events_with_task_and_person(self):
+        timeline = self.standup()["timeline"]
+        self.assertFalse(timeline["grouped"])
+        self.assertEqual([(m["kind"], m["events"][0]["task"], m["events"][0]["person"])
+                          for m in timeline["markers"]],
+                         [("created", "Crash on login", "bob"), ("done", "Design", "alice"),
+                          ("in_progress", "API", "bob")])
+        self.assertEqual(len(timeline["legend"]), 7)
+
+    def test_person_cards(self):
+        cards = {c["name"]: c for c in self.standup()["people"]}
+        self.assertEqual(list(cards), ["alice", "bob", "sam"])  # no saved order yet: by name
+        self.assertEqual(cards["alice"]["completed"], [{"id": self.design.pk, "title": "Design"}])
+        self.assertEqual(cards["bob"]["in_progress"], [{"id": self.api.pk, "title": "API"}])
+        self.assertEqual(cards["bob"]["blocked"][0]["reason"], "Waiting for API keys")
+        self.assertTrue(cards["alice"]["active"])
+        self.assertFalse(cards["sam"]["active"])  # "No activity in window."
+
+    def test_saved_order_is_used_and_shared(self):
+        self.standups.save_order(self.alice, self.project.pk, [self.sam.pk, self.bob.pk])
+        self.assertEqual([c["name"] for c in self.standup(user=self.bob)["people"]],
+                         ["sam", "bob", "alice"])
+
+    def test_order_must_name_team_members_once(self):
+        with self.assertRaises(InvalidStandupOrder):
+            self.standups.save_order(self.sam, self.project.pk, [self.outsider.pk])
+        with self.assertRaises(InvalidStandupOrder):
+            self.standups.save_order(self.sam, self.project.pk, [self.bob.pk, self.bob.pk])
+
+    def test_blockers_oldest_first_with_working_days(self):
+        newer = self.add_at(at(2), "Payments")
+        self.did(at(10, 16), self.service.set_blocked, self.alice, newer.pk, "Needs legal review")
+        blockers = self.standup()["blockers"]
+        self.assertEqual([b["title"] for b in blockers], ["API", "Payments"])
+        self.assertEqual((blockers[0]["days_blocked"], blockers[0]["stale"]), (3, True))  # Fri -> Wed
+        self.assertEqual((blockers[1]["days_blocked"], blockers[1]["stale"]), (1, False))
+        self.assertEqual(blockers[0]["owner"], "bob")
+
+    def test_outsider_gets_not_a_member(self):
+        with self.assertRaises(NotAProjectMember):
+            self.standup(user=self.outsider)
+
+    def test_one_failing_section_does_not_blank_the_others(self):
+        with mock.patch.object(StandupService, "_timeline", side_effect=RuntimeError("boom")), \
+                self.assertLogs("tasks.standup_service", "ERROR"):
+            data = self.standup()
+        self.assertIn("error", data["timeline"])
+        self.assertEqual(len(data["tiles"]), 6)
+        self.assertEqual(len(data["people"]), 3)
+
+    def test_sections_can_be_asked_for_one_at_a_time(self):
+        data = self.standup(sections=["blockers"])
+        self.assertIn("blockers", data)
+        self.assertNotIn("tiles", data)
+
+
+class ScheduleHealth(StandupFixture):
+    """Design -> Build -> Launch is the critical path; Docs hangs off Design with slack."""
+
+    NOW = at(11, 10)
+
+    def setUp(self):
+        super().setUp()
+        self.standups = StandupService(TaskRepository(), Scheduler(), ProjectAccess())
+        self.design = self.add_at(at(2), "Design", 2)
+        self.build = self.add_at(at(2), "Build", 2, depends_on_ids=[self.design.pk])
+        self.launch = self.add_at(at(2), "Launch", 1, depends_on_ids=[self.build.pk])
+        self.docs = self.add_at(at(2), "Docs", 1, depends_on_ids=[self.design.pk])
+
+    def health(self):
+        return self.standups.standup(self.sam, self.project.pk, now=self.NOW)["schedule_health"]
+
+    def test_critical_path_comes_from_the_engine(self):
+        health = self.health()
+        self.assertEqual([t["title"] for t in health["critical_path"]], ["Design", "Build", "Launch"])
+        self.assertEqual(health["critical_path"][-1]["due"], date(2026, 10, 23))
+        self.assertEqual((health["slipped"], health["downstream_moved"]), ([], []))
+
+    def test_slip_on_the_critical_path_and_what_moved_downstream(self):
+        # In the window, Design is made to wait for 3 days of research
+        research = self.add_at(at(10, 9), "Research", 3)
+        self.did(at(10, 10), self.service.set_dependencies, self.sam, self.design.pk, [research.pk])
+        health = self.health()
+        slipped = {t["title"]: (t["from"], t["to"], t["days"]) for t in health["slipped"]}
+        self.assertEqual(slipped["Design"], (date(2026, 10, 20), date(2026, 10, 23), 3))
+        self.assertEqual(set(slipped), {"Design", "Build", "Launch"})
+        self.assertEqual([(t["title"], t["because_of"]) for t in health["downstream_moved"]],
+                         [("Docs", ["Design"])])
+        self.assertTrue(all(t["slipped"] for t in health["critical_path"] if t["title"] != "Research"))
+
+    def test_forecast_says_it_is_not_available(self):
+        self.assertFalse(self.health()["forecast"]["available"])
+
+
+class StandupPerformance(StandupFixture):
+    """AC8: under 2 seconds for 500 tasks and 2,000 events."""
+
+    def test_500_tasks_and_2000_events(self):
+        import time
+        from .models import TaskEvent as E
+        now = at(11, 10)
+        tasks = Task.objects.bulk_create([
+            Task(project=self.project, title=f"Task {i}", duration_days=1, planned_start=START,
+                 scheduled_start=START, scheduled_end=START, assignee=self.alice if i % 2 else self.bob,
+                 status="in_progress" if i % 3 else "todo")
+            for i in range(500)])
+        Task.objects.update(created_at=at(1))
+        E.objects.bulk_create([
+            E(project=self.project, task=tasks[i % 500], actor=self.alice,
+              kind=["created", "in_progress", "done", "blocked", "unblocked"][i % 5],
+              old_value="todo", created_at=now - timedelta(minutes=i))
+            for i in range(2000)])
+        standups = StandupService(TaskRepository(), Scheduler(), ProjectAccess())
+        started = time.perf_counter()
+        data = standups.standup(self.sam, self.project.pk, now=now)
+        elapsed = time.perf_counter() - started
+        self.assertLess(elapsed, 2.0)
+        self.assertTrue(data["timeline"]["grouped"])
+        self.assertTrue(all("error" not in data[s] for s in ("tiles", "people", "blockers")
+                            if isinstance(data[s], dict)))
