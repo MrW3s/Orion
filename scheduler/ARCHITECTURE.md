@@ -39,6 +39,8 @@ Requests flow one way: **controller → service → (repository | engine | acces
 | File | Job | Knows about HTTP? | Knows about the ORM? |
 |---|---|---|---|
 | `views.py` | Parse request → call one service method → return JSON | yes | no |
+| `standup.py` | Standup window, working days, value-at-a-moment, timeline grouping (pure date math) | no | no |
+| `standup_service.py` | Builds every section of the standup page from one snapshot | **no** | **no** (repository) |
 | `serializers.py` | JSON shape validation | yes | read-only |
 | `services.py` | Business rules for the stories | **no** | **no** (goes through the repository) |
 | `repository.py` | All task queries | no | yes |
@@ -112,6 +114,9 @@ Requests flow one way: **controller → service → (repository | engine | acces
 | **ClientNote** | `project` (FK), `author` (FK User), `text`, `created_at` | Only the project's owner can leave one; the project's members see them |
 | **Task** | `project` (FK), `title`, `description`, `assignee` (FK User, optional), `created_by`, `planned_start` (the start date the user picked), `duration_days` (≥ 1), `status` (`todo` = "Not started" / `in_progress` / `complete`), `depends_on` (M:N → Task), `scheduled_start`, `scheduled_end`, timestamps | Dependencies must be in the same project and form no cycle; assignee must be a member; scheduled dates are written by the engine only, never earlier than `planned_start` |
 | **GanttReport** | `project` (FK), `reporter` (FK User), `message`, `created_at`, `resolved_by` (FK User, optional), `resolved_at` | Message required, at most 1000 characters; open while `resolved_at` is empty |
+| **Task** (standup additions) | `kind` (`task` / `bug`), `blocked_since`, `blocked_reason` | Blocked while `blocked_since` is set; a reason is required. Blocked is separate from status |
+| **TaskEvent** | `project`, `task`, `actor` (FK User), `kind` (`created` / `in_progress` / `done` / `reopened` / `blocked` / `unblocked` / `reassigned` / `rescheduled`), `old_value`, `new_value`, `created_at` | Written in the same transaction as the change. Indexed on (project, created_at) and (task, created_at). No history before migration `0005` |
+| **StandupOrder** | `project`, `user`, `position` | One speaking order per project, shared by the team |
 
 Relationships: Project 1─* Task · Project *─* User (members) · Project *─1 User (owner) ·
 Project 1─* ClientNote · Project 1─* GanttReport · Task *─* Task (dependency).
@@ -215,7 +220,41 @@ page), and `resolve_gantt_report()` marks one resolved.
 * `GET /dashboard/{id}/` → `clients.views.project` → `ClientDashboardService.project` → `build_chart` → `clients/project.html`
 * `POST /dashboard/{id}/gantt-report/` → `clients.views.gantt_report` → `ClientDashboardService.report_gantt_problem`
 
-## 9. Design principles applied
+## 9. Standup story
+
+> *As a Scrum Master running a daily standup, I want one page that shows everything happening on my
+> project since the last standup, so the team can review progress, blockers and schedule risk in 15
+> minutes without switching screens.*
+
+**Activity log.** Before this story, nothing recorded who changed what. `TaskService` now writes a
+`TaskEvent` in the same transaction as each change: `add_task` (created), `update_status`
+(in progress / done / reopened), `set_blocked` / `unblock`, `reassign`, and `_reschedule`, which logs
+every due date the engine moves (`rescheduled`, old and new date). Nothing was backfilled.
+
+**One endpoint.** `GET /api/projects/{id}/standup/` → `views.StandupView` → `StandupService.standup()`:
+1. `ProjectAccess.require_member()` (403 for everyone else, clients included).
+2. `standup.build_window()`: *since last standup* runs from the start of the previous working day
+   (Monday looks back to Friday; Monday to Friday only, no holidays) to now. The tiles compare it with
+   the previous window of the same length.
+3. One snapshot: the project's tasks and every event since the previous window began (2 queries + 1
+   prefetch, whatever the window). State at a past moment (for the deltas) is rebuilt from the log:
+   the old value of the first change after that moment (`standup.value_at`).
+4. Each section is built separately. An exception becomes `{"error": ...}` for that section only, and
+   `?sections=` lets the page retry just that one.
+
+| Section | Built from |
+|---|---|
+| Tiles | done / in-progress events in the window; blocked, overdue and active members at the window's end; bugs by `created_at` |
+| Timeline | the window's events; above 30, one marker per hour (`standup.group_markers`) |
+| People | team members (never clients) in `StandupOrder`, then by name |
+| Schedule health | `Scheduler.compute()` (the same engine as the saved schedule) for the critical path; `rescheduled` events for slips; dependents of slipped critical tasks for downstream moves. There is no Monte Carlo simulation yet, so the forecast says it's unavailable |
+| Blockers | blocked tasks, oldest first, with working days blocked; over 2 is flagged |
+
+**Page.** `/projects/{id}/standup/` (`pages.standup`) renders the shell; `static/tasks/standup.js`
+fills it (vanilla JS, no libraries, no `innerHTML`). It polls every 60 seconds rather than using the
+WebSocket, so a long-open standup screen stays current even after reconnects.
+
+## 10. Design principles applied
 
 * **High cohesion:** each module and file has one responsibility (tables in §2).
 * **Low coupling:** one-way dependencies, data coupling to the engine, constructor-supplied collaborators, an interface for events.
