@@ -116,6 +116,14 @@ class ActivityLogIsRecorded(StandupFixture):
             self.service.set_blocked(self.bob, task.pk, "  ")
         self.assertEqual(self.kinds(task), ["created"])
 
+    def test_blocked_reason_rejects_html(self):
+        # Security story 1: same rule as descriptions, notes and reports
+        task = self.add("API")
+        with self.assertRaises(InvalidTask):
+            self.service.set_blocked(self.bob, task.pk, "<script>alert(1)</script>")
+        self.assertFalse(TaskRepository().get(task.pk).is_blocked)
+        self.service.set_blocked(self.bob, task.pk, "Waiting on keys (cost < budget)")  # plain "<" is fine
+
     def test_reassign_logs_old_and_new_assignee(self):
         task = self.add("API", assignee_id=self.alice.pk)
         self.service.reassign(self.sam, task.pk, self.bob.pk)

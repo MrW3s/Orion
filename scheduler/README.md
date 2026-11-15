@@ -28,10 +28,10 @@ python manage.py runserver
   *Address already in use*, a server is already running: use it, or stop it with Ctrl+C first.
 * After pulling new code, run `python manage.py migrate` again.
 
-Tests (162 backend, including one end-to-end browser test, plus 24 frontend component tests):
+Tests (183 backend, including one end-to-end browser test, plus 24 frontend component tests):
 
 ```bash
-python manage.py test accounts projects scheduling tasks clients
+python manage.py test accounts projects scheduling tasks clients common
 npm install && npm test        # frontend component tests: node --test + jsdom (Node 20+)
 ```
 

@@ -173,6 +173,7 @@ class TaskService:
             raise InvalidTask("Say what the task is blocked on")
         if len(reason) > BLOCKED_REASON_MAX_LENGTH:
             raise InvalidTask(f"Keep the reason under {BLOCKED_REASON_MAX_LENGTH} characters")
+        check_text(reason, InvalidTask, "Blocked reason")
         task = self._repo.get(task_id)
         self._access.require_member(user, task.project_id)
         self._require(user, "update_status", "Your role can't change tasks")
