@@ -56,6 +56,21 @@
     <div class="sec-body">{% include "tasks/_standup_skeleton.html" %}</div>
   </section>
 
+  <div class="standup-grid">
+    <div>
+      <section class="card sec" data-section="people" aria-labelledby="h-people">
+        <h2 id="h-people">Team
+          <span class="actions">
+            <span class="small muted hint">Drag cards or use ↑ ↓ to set the order.</span>
+            <button type="button" id="next-speaker">Next speaker</button>
+          </span>
+        </h2>
+        <div class="sec-body">{% include "tasks/_standup_skeleton.html" %}</div>
+      </section>
+    </div>
+    <div id="standup-side"></div>
+  </div>
+
   <section class="card sec" data-section="tasks" aria-labelledby="h-tasks">
     <h2 id="h-tasks">Tasks</h2>
     <div class="sec-body">{% include "tasks/_standup_skeleton.html" %}</div>

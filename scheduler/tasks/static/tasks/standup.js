@@ -185,11 +185,68 @@
     return item ? item.label : kind;
   }
 
+  // ---- Per-person cards (AC5) ----------------------------------------------
+  function renderPeople(container, people, ctx = {}) {
+    const h = maker(container.ownerDocument);
+    if (!people || !people.length) return renderEmpty(container, "No team members on this project yet.");
+    const ids = people.map((p) => p.user_id);
+    const move = (from, to) => {
+      if (to < 0 || to >= ids.length || from === to) return;
+      const next = ids.slice();
+      next.splice(to, 0, next.splice(from, 1)[0]);
+      if (ctx.onReorder) ctx.onReorder(next);
+    };
+    let dragged = null;
+
+    const list = (title, tasks, extra) => tasks.length ? h("div", { class: "person-list" },
+      h("div", { class: "small muted", text: `${title} (${tasks.length})` }),
+      h("ul", {}, tasks.map((t) => h("li", {}, t.title, extra ? extra(t) : null)))) : null;
+
+    const cards = people.map((person, index) => {
+      const body = person.active ? [
+        list("Completed in window", person.completed),
+        list("In progress now", person.in_progress),
+        list("Blocked", person.blocked, (t) => h("div", { class: "small reason", text: t.reason })),
+      ].filter(Boolean) : [];
+      if (person.active && !body.length) {
+        body.push(h("p", { class: "empty", text: "Active, but nothing completed, in progress or blocked." }));
+      }
+      if (!person.active) {
+        body.push(h("p", { class: "empty", text: "No activity in window." }),
+                  list("In progress now", person.in_progress),
+                  list("Blocked", person.blocked, (t) => h("div", { class: "small reason", text: t.reason })));
+      }
+      const card = h("li", {
+        class: "person" + (ctx.speaker === person.user_id ? " speaking" : "") + (person.active ? "" : " idle"),
+        draggable: "true", dataset: { userId: String(person.user_id) },
+        "aria-current": ctx.speaker === person.user_id ? "true" : null,
+        ondragstart: (e) => { dragged = index; e.dataTransfer.effectAllowed = "move";
+                              e.dataTransfer.setData("text/plain", String(person.user_id)); },
+        ondragover: (e) => { e.preventDefault(); card.classList.add("drop-target"); },
+        ondragleave: () => card.classList.remove("drop-target"),
+        ondrop: (e) => { e.preventDefault(); card.classList.remove("drop-target");
+                         if (dragged !== null) move(dragged, index); dragged = null; },
+      },
+        h("div", { class: "person-head" },
+          h("span", { class: "grip", "aria-hidden": "true", text: "⋮⋮" }),
+          h("strong", { text: person.name }),
+          h("span", { class: "order-buttons" },
+            h("button", { type: "button", class: "link", "aria-label": `Move ${person.name} up`,
+                          disabled: index === 0, onclick: () => move(index, index - 1) }, "↑"),
+            h("button", { type: "button", class: "link", "aria-label": `Move ${person.name} down`,
+                          disabled: index === people.length - 1, onclick: () => move(index, index + 1) }, "↓"))),
+        body);
+      return card;
+    });
+    return fill(container, h("ol", { class: "people" }, cards));
+  }
+
   // Section name -> renderer(container, data, ctx). The other sections add themselves below.
   const RENDERERS = {
     tiles: (el, data, ctx) => renderTiles(el, data, ctx),
     tasks: (el, data, ctx) => renderTaskList(el, data, ctx),
     timeline: (el, data, ctx) => renderTimeline(el, data, ctx),
+    people: (el, data, ctx) => renderPeople(el, data, ctx),
   };
 
   // ---- The page -----------------------------------------------------------
@@ -202,7 +259,7 @@
     const windowSelect = root.querySelector("#window-select");
     const customRange = root.querySelector("#custom-range");
     const windowError = root.querySelector("#window-error");
-    const state = { data: {}, filter: null, loaded: false };
+    const state = { data: {}, filter: null, loaded: false, speaker: null };
 
     const body = (name) => root.querySelector(`section[data-section="${name}"] .sec-body`);
 
@@ -229,10 +286,44 @@
         }
       },
       onClearFilter() { state.filter = null; render("tiles"); render("tasks"); },
-      csrf: root.dataset.csrf,
-      orderUrl: root.dataset.orderUrl,
-      fetch: fetchFn,
+      get speaker() { return state.speaker; },
+      onReorder: (ids) => saveOrder(ids),
     };
+
+    // ---- Speaking order -------------------------------------------------
+    async function saveOrder(ids) {
+      const before = state.data.people;
+      const byId = new Map(before.map((p) => [p.user_id, p]));
+      state.data.people = ids.map((id) => byId.get(id));
+      render("people");
+      try {
+        const response = await fetchFn(root.dataset.orderUrl, {
+          method: "PUT", credentials: "same-origin",
+          headers: { "Content-Type": "application/json", Accept: "application/json",
+                     "X-CSRFToken": root.dataset.csrf },
+          body: JSON.stringify({ user_ids: ids }),
+        });
+        if (!response.ok) throw new Error(String(response.status));
+      } catch (err) {
+        state.data.people = before;
+        render("people");
+        const el = body("people");
+        if (el) el.prepend(maker(doc)("div", { class: "msg msg-error", role: "alert",
+                                               text: "The new order wasn't saved. Try again." }));
+      }
+    }
+
+    function nextSpeaker() {
+      const people = Array.isArray(state.data.people) ? state.data.people : [];
+      if (!people.length) return;
+      const at = people.findIndex((p) => p.user_id === state.speaker);
+      state.speaker = people[(at + 1) % people.length].user_id;
+      render("people");
+      const card = root.querySelector(`.person[data-user-id="${state.speaker}"]`);
+      if (card && card.scrollIntoView) card.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    const nextButton = root.querySelector("#next-speaker");
+    if (nextButton) nextButton.addEventListener("click", nextSpeaker);
 
     function tileFilter(tile) {
       return { key: tile.key, label: tile.label, ids: new Set(tile.task_ids) };
@@ -357,9 +448,9 @@
 
     const ready = load();
     const timer = options.autoRefresh === false ? null : win.setInterval(() => load(), REFRESH_MS);
-    return { ready, load, ctx, stop: () => timer && win.clearInterval(timer) };
+    return { ready, load, ctx, nextSpeaker, stop: () => timer && win.clearInterval(timer) };
   }
 
-  return { start, RENDERERS, renderTiles, renderTaskList, renderTimeline, renderEmpty, renderError,
+  return { start, RENDERERS, renderTiles, renderTaskList, renderTimeline, renderPeople, renderEmpty, renderError,
            renderSkeleton, maker, fill, fmt };
 });
