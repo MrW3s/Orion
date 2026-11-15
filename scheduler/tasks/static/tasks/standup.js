@@ -124,10 +124,72 @@
       h("tbody", {}, rows)));
   }
 
+  // ---- Activity timeline (AC4) --------------------------------------------
+  const EVENT_STYLE = {  // kind -> icon; colours are the .kind-<kind> classes
+    created: "+", in_progress: "▶", done: "✓", blocked: "!", unblocked: "↻",
+    reassigned: "⇄", reopened: "↩", mixed: "•",
+  };
+  const TIP_LIMIT = 8;
+  const ROWS = 3;  // markers closer than MIN_GAP% share the track on different rows
+
+  function renderTimeline(container, timeline, ctx = {}) {
+    const h = maker(container.ownerDocument);
+    const legend = h("ul", { class: "legend", "aria-label": "Legend" },
+      (timeline.legend || []).map((item) => h("li", {},
+        h("span", { class: `swatch kind-${item.kind}`, "aria-hidden": "true", text: EVENT_STYLE[item.kind] }),
+        item.label)));
+    if (!timeline.markers || !timeline.markers.length) {
+      return fill(container, h("p", { class: "empty", text: "No activity in this window." }), legend);
+    }
+    const start = Date.parse(timeline.start);
+    const span = Math.max(Date.parse(timeline.end) - start, 1);
+    const MIN_GAP = 2.5;
+    const lastLeft = new Array(ROWS).fill(-Infinity);
+
+    const markers = timeline.markers.map((marker, i) => {
+      const left = Math.min(100, Math.max(0, ((Date.parse(marker.at) - start) / span) * 100));
+      let row = lastLeft.findIndex((prev) => left - prev >= MIN_GAP);
+      if (row === -1) row = i % ROWS;
+      lastLeft[row] = left;
+      const first = marker.events[0];
+      const label = marker.count > 1
+        ? `${marker.count} events around ${fmt.time(marker.at)}`
+        : `${kindLabel(timeline, first.kind)}: ${first.task}, by ${first.person} at ${fmt.time(first.at)}`;
+      const tip = h("div", { class: "marker-tip" + (left > 65 ? " to-left" : ""), role: "tooltip" },
+        marker.events.slice(0, TIP_LIMIT).map((e) => h("div", {},
+          h("span", { class: `swatch kind-${e.kind}`, "aria-hidden": "true", text: EVENT_STYLE[e.kind] }),
+          h("strong", { text: e.task }), ` · ${e.person} · ${fmt.time(e.at)}`)),
+        marker.count > TIP_LIMIT ? h("div", { class: "muted", text: `and ${marker.count - TIP_LIMIT} more` }) : null);
+      return h("button", {
+        type: "button", class: `marker kind-${marker.kind}`, "aria-label": label,
+        style: `left: ${left}%; top: ${6 + row * 26}px`, dataset: { count: String(marker.count) },
+      }, h("span", { "aria-hidden": "true", text: EVENT_STYLE[marker.kind] || "•" }),
+         marker.count > 1 ? h("span", { class: "marker-count", text: String(marker.count) }) : null,
+         tip);
+    });
+
+    const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => h("span", {
+      class: "tick", style: `left: ${f * 100}%`,
+      text: fmt.dateTime(new Date(start + f * span).toISOString()) }));
+    const summary = `${timeline.event_count} event${timeline.event_count === 1 ? "" : "s"}` +
+      (timeline.grouped ? ", grouped by hour" : "");
+    return fill(container,
+      h("p", { class: "small muted timeline-summary", text: summary }),
+      h("div", { class: "timeline-track" }, h("div", { class: "axis" }), markers),
+      h("div", { class: "ticks small muted" }, ticks),
+      legend);
+  }
+
+  function kindLabel(timeline, kind) {
+    const item = (timeline.legend || []).find((l) => l.kind === kind);
+    return item ? item.label : kind;
+  }
+
   // Section name -> renderer(container, data, ctx). The other sections add themselves below.
   const RENDERERS = {
     tiles: (el, data, ctx) => renderTiles(el, data, ctx),
     tasks: (el, data, ctx) => renderTaskList(el, data, ctx),
+    timeline: (el, data, ctx) => renderTimeline(el, data, ctx),
   };
 
   // ---- The page -----------------------------------------------------------
@@ -298,6 +360,6 @@
     return { ready, load, ctx, stop: () => timer && win.clearInterval(timer) };
   }
 
-  return { start, RENDERERS, renderTiles, renderTaskList, renderEmpty, renderError,
+  return { start, RENDERERS, renderTiles, renderTaskList, renderTimeline, renderEmpty, renderError,
            renderSkeleton, maker, fill, fmt };
 });

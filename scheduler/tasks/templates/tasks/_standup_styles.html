@@ -33,6 +33,34 @@
   .task-table td, .task-table th { padding: 8px 6px; }
   .flag { display: inline-block; margin-left: 4px; }
 
+  /* Activity timeline */
+  .kind-created { --kind: #2f5bd3; } .kind-in_progress { --kind: #b7791f; } .kind-done { --kind: #1a7f37; }
+  .kind-blocked { --kind: #b42318; } .kind-unblocked { --kind: #0e7490; } .kind-reassigned { --kind: #7c3aed; }
+  .kind-reopened { --kind: #656d76; } .kind-mixed { --kind: #1f2a44; }
+  .timeline-track { position: relative; height: 92px; margin: 8px 14px 0; }
+  .timeline-track .axis { position: absolute; left: 0; right: 0; bottom: 4px; border-top: 2px solid var(--border); }
+  .marker { position: absolute; transform: translateX(-50%); width: 24px; height: 24px; padding: 0;
+            border-radius: 50%; background: var(--kind); color: #fff; font-size: 13px; line-height: 24px;
+            text-align: center; }
+  .marker:hover, .marker:focus-visible { outline: 3px solid color-mix(in srgb, var(--kind) 35%, transparent); z-index: 3; }
+  .marker-count { position: absolute; top: -8px; right: -10px; min-width: 18px; padding: 0 4px;
+                  border-radius: 999px; background: var(--surface); color: var(--kind);
+                  border: 1px solid var(--kind); font-size: 11px; line-height: 16px; }
+  .marker-tip { display: none; position: absolute; top: 30px; left: 0; z-index: 4; width: max-content;
+                max-width: 320px; padding: 8px 10px; border-radius: 6px; background: var(--surface);
+                color: var(--text); border: 1px solid var(--border); box-shadow: 0 4px 14px rgba(0,0,0,.12);
+                text-align: left; font-size: 13px; line-height: 1.5; }
+  .marker-tip.to-left { left: auto; right: 0; }
+  .marker:hover .marker-tip, .marker:focus .marker-tip { display: block; }
+  .ticks { position: relative; height: 20px; margin: 4px 14px 8px; }
+  .ticks .tick { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+  .ticks .tick:first-child { transform: none; } .ticks .tick:last-child { transform: translateX(-100%); }
+  @media (max-width: 1024px) { .ticks .tick:nth-child(2), .ticks .tick:nth-child(4) { display: none; } }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; list-style: none; padding: 0; margin: 8px 0 0; font-size: 13px; }
+  .legend li, .marker-tip div { display: flex; align-items: center; gap: 6px; }
+  .swatch { display: inline-block; width: 18px; height: 18px; border-radius: 50%; background: var(--kind);
+            color: #fff; font-size: 11px; line-height: 18px; text-align: center; flex: none; }
+
   /* Loading, empty and error states */
   .skeleton { background: linear-gradient(90deg, #eef0f3 25%, #f7f8fa 50%, #eef0f3 75%);
               background-size: 200% 100%; animation: shimmer 1.2s infinite; border-radius: 6px; }

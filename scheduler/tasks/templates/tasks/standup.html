@@ -51,6 +51,11 @@
     <div class="sec-body"><div class="tiles">{% for i in "123456" %}<div class="tile skeleton"></div>{% endfor %}</div></div>
   </section>
 
+  <section class="card sec" data-section="timeline" aria-labelledby="h-timeline">
+    <h2 id="h-timeline">Activity</h2>
+    <div class="sec-body">{% include "tasks/_standup_skeleton.html" %}</div>
+  </section>
+
   <section class="card sec" data-section="tasks" aria-labelledby="h-tasks">
     <h2 id="h-tasks">Tasks</h2>
     <div class="sec-body">{% include "tasks/_standup_skeleton.html" %}</div>
