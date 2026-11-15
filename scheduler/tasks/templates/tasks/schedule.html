@@ -5,6 +5,7 @@
 {% block content %}
 <div class="page-head">
   <h1>{{ project.name }}</h1>
+  <a class="button secondary" href="{% url 'project-standup' project.pk %}">Standup</a>
   <a class="button" href="{% url 'project-gantt' project.pk %}">Gantt chart</a>
 </div>
 <p class="muted">Project starts {{ project.start_date|date:"M j, Y" }}</p>
@@ -27,6 +28,8 @@
     <tr>
       <td>
         {{ task.title }}
+        {% if task.kind == "bug" %}<span class="status status-critical">Bug</span>{% endif %}
+        {% if task.is_blocked %}<span class="status status-blocked" title="{{ task.blocked_reason }}">Blocked</span>{% endif %}
         {% if task.description %}<div class="small muted">{{ task.description }}</div>{% endif %}
       </td>
       <td><span class="status status-{{ task.status }}">{{ task.get_status_display }}</span></td>
@@ -97,9 +100,15 @@
         {{ form.end_date }}{{ form.end_date.errors }}
       </div>
     </div>
-    <div class="field">
-      <label for="{{ form.assignee_id.id_for_label }}">{{ form.assignee_id.label }}</label>
-      {{ form.assignee_id }}{{ form.assignee_id.errors }}
+    <div class="grid2">
+      <div class="field">
+        <label for="{{ form.assignee_id.id_for_label }}">{{ form.assignee_id.label }}</label>
+        {{ form.assignee_id }}{{ form.assignee_id.errors }}
+      </div>
+      <div class="field">
+        <label for="{{ form.kind.id_for_label }}">{{ form.kind.label }}</label>
+        {{ form.kind }}{{ form.kind.errors }}
+      </div>
     </div>
     {% if tasks %}
     <div class="field checks">
@@ -114,6 +123,57 @@
     <button>Add task</button>
   </form>
 </div>
+
+{% if tasks %}
+<div class="card" id="update-task">
+  <h2>Update a task</h2>
+  {% if update_form.errors %}
+    <div class="msg msg-error">
+      The task wasn't changed. {% for error in update_form.non_field_errors %}{{ error }}{% empty %}Fix the fields marked below.{% endfor %}
+    </div>
+  {% endif %}
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <div class="field">
+      <label for="{{ update_form.task_id.id_for_label }}">{{ update_form.task_id.label }}</label>
+      {{ update_form.task_id }}{{ update_form.task_id.errors }}
+    </div>
+    <div class="grid2">
+      <div class="field">
+        <label for="{{ update_form.status.id_for_label }}">{{ update_form.status.label }}</label>
+        {{ update_form.status }}{{ update_form.status.errors }}
+      </div>
+      <div class="field">
+        <label for="{{ update_form.assignee_id.id_for_label }}">{{ update_form.assignee_id.label }}</label>
+        {{ update_form.assignee_id }}{{ update_form.assignee_id.errors }}
+      </div>
+    </div>
+    <div class="field checks">
+      <div><label>{{ update_form.blocked }} {{ update_form.blocked.label }}</label></div>
+    </div>
+    <div class="field">
+      <label for="{{ update_form.blocked_reason.id_for_label }}">{{ update_form.blocked_reason.label }}</label>
+      {{ update_form.blocked_reason }}{{ update_form.blocked_reason.errors }}
+    </div>
+    <button>Save changes</button>
+  </form>
+</div>
+{{ current_state|json_script:"current-state" }}
+<script>
+  // When a task is picked, fill the form with its current state.
+  (function () {
+    const form = document.getElementById("update-task");
+    form.querySelector("select[name=upd-task_id]").addEventListener("change", function () {
+      const state = JSON.parse(document.getElementById("current-state").textContent)[this.value];
+      if (!state) return;
+      form.querySelector("[name=upd-status]").value = state.status;
+      form.querySelector("[name=upd-assignee_id]").value = state.assignee_id || "";
+      form.querySelector("[name=upd-blocked]").checked = state.blocked;
+      form.querySelector("[name=upd-blocked_reason]").value = state.blocked_reason;
+    });
+  })();
+</script>
+{% endif %}
 
 {% if tasks|length > 1 %}
 <div class="card" id="edit-dependencies">
@@ -163,7 +223,7 @@
       const html = await (await fetch(location.href)).text();
       const page = new DOMParser().parseFromString(html, "text/html");
       // The table, and the current dependencies the dependencies form pre-ticks.
-      for (const id of ["schedule", "current-deps"]) {
+      for (const id of ["schedule", "current-deps", "current-state"]) {
         const fresh = page.getElementById(id), old = document.getElementById(id);
         if (fresh && old) old.replaceWith(fresh);
       }

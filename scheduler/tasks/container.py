@@ -8,6 +8,7 @@ from scheduling import Scheduler
 
 from .repository import TaskRepository
 from .services import TaskService
+from .standup_service import StandupService
 
 
 def task_service() -> TaskService:
@@ -16,5 +17,14 @@ def task_service() -> TaskService:
         scheduler=Scheduler(),
         access=ProjectAccess(),
         publisher=ChannelsPublisher(),
+        roles=RoleService(),
+    )
+
+
+def standup_service() -> StandupService:
+    return StandupService(
+        repository=TaskRepository(),
+        scheduler=Scheduler(),
+        access=ProjectAccess(),
         roles=RoleService(),
     )

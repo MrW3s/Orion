@@ -1,0 +1,11 @@
+{
+  "name": "orion-frontend-tests",
+  "private": true,
+  "description": "Component tests for the browser scripts in */static/. Run: npm test",
+  "scripts": {
+    "test": "node --test frontend_tests/"
+  },
+  "devDependencies": {
+    "jsdom": "^26.1.0"
+  }
+}

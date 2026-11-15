@@ -67,3 +67,11 @@ class InvalidReport(DomainError):
 
 class ReportNotFound(DomainError):
     pass
+
+
+class InvalidWindow(DomainError):
+    """The standup's time window is malformed (e.g. end before start)."""
+
+
+class InvalidStandupOrder(DomainError):
+    """A standup speaking order names someone who isn't on the project."""

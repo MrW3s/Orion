@@ -49,6 +49,9 @@ CREATE TABLE tasks (
     planned_start DATE,                 -- the start date the user picked
     status TEXT NOT NULL DEFAULT 'todo'
         CHECK (status IN ('todo', 'in_progress', 'complete')),
+    kind TEXT NOT NULL DEFAULT 'task' CHECK (kind IN ('task', 'bug')),
+    blocked_since DATETIME,             -- blocked while this is set
+    blocked_reason TEXT NOT NULL DEFAULT '',
     -- written by the scheduling engine, never by users directly
     scheduled_start DATE,
     scheduled_end DATE,
@@ -65,4 +68,29 @@ CREATE TABLE task_dependencies (
     task_id INTEGER NOT NULL REFERENCES tasks (id) ON DELETE CASCADE,
     depends_on_id INTEGER NOT NULL REFERENCES tasks (id) ON DELETE CASCADE,
     UNIQUE (task_id, depends_on_id)
+);
+
+-- activity log: who changed what on a task, and when (standup story)
+-- written in the same transaction as the change; no history before it existed
+CREATE TABLE task_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    task_id INTEGER NOT NULL REFERENCES tasks (id) ON DELETE CASCADE,
+    actor_id INTEGER REFERENCES users (id) ON DELETE SET NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('created', 'in_progress', 'done', 'reopened',
+                                       'blocked', 'unblocked', 'reassigned', 'rescheduled')),
+    old_value TEXT NOT NULL DEFAULT '',
+    new_value TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL
+);
+CREATE INDEX taskevent_project_time ON task_events (project_id, created_at);
+CREATE INDEX taskevent_task_time ON task_events (task_id, created_at);
+
+-- each project's standup speaking order, shared by the team
+CREATE TABLE standup_order (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    UNIQUE (project_id, user_id)
 );
