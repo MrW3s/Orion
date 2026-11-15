@@ -9,7 +9,10 @@ PASSWORD = forms.PasswordInput(attrs={"autocomplete": "new-password"})
 
 
 class NewUserForm(forms.Form):
-    username = forms.CharField(max_length=150, validators=[UnicodeUsernameValidator()],
+    username = forms.CharField(max_length=150,
+                               validators=[UnicodeUsernameValidator(
+                                   message="Username contains invalid characters. Use letters, "
+                                           "numbers and @ . + - _ only.")],
                                error_messages={"required": "Enter a username."})
     role = forms.ChoiceField(choices=Role.choices, initial=Role.TEAM_MEMBER)
     password1 = forms.CharField(label="Password", widget=PASSWORD, strip=False,

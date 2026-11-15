@@ -44,6 +44,7 @@ from django.db import transaction
 
 from accounts.services import RoleService
 from common.errors import InvalidDependency, InvalidReport, InvalidTask, NotAllowed
+from common.validation import check_name, check_text
 from notifications.events import ProjectEvent
 from notifications.publisher import EventPublisher
 from projects.access import ProjectAccess
@@ -224,6 +225,7 @@ class TaskService:
             raise InvalidReport("Say what looks wrong on the chart")
         if len(message) > REPORT_MAX_LENGTH:
             raise InvalidReport(f"Keep the report under {REPORT_MAX_LENGTH} characters")
+        check_text(message, InvalidReport, "Report")
 
         with transaction.atomic():
             report = self._repo.create_gantt_report(project_id=project_id, reporter=reporter,
@@ -261,6 +263,8 @@ class TaskService:
     def _check_name_and_dates(self, project_id: int, new: NewTask) -> None:
         if not new.title.strip():
             raise InvalidTask("Give the task a name")
+        check_name(new.title, InvalidTask)
+        check_text(new.description or "", InvalidTask, "Description")
         if new.end_date < new.start_date:
             raise InvalidTask("The end date can't be before the start date")
         project_start = self._access.get_project(project_id).start_date
