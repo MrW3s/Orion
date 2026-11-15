@@ -511,3 +511,19 @@ class StandupPage(StandupFixture):
         self.client.force_login(self.alice)
         response = self.client.get(reverse("project-schedule", args=[self.project.pk]))
         self.assertContains(response, reverse("project-standup", args=[self.project.pk]))
+
+
+class SeedDemo(TestCase):
+    def test_seed_builds_a_realistic_project_and_can_be_rebuilt(self):
+        from io import StringIO
+        from django.core.management import call_command
+        call_command("seed_standup_demo", stdout=StringIO())
+        project = Project.objects.get(name="Mobile App Launch (demo)")
+        sam = User.objects.get(username="sam")
+        data = StandupService(TaskRepository(), Scheduler(), ProjectAccess()).standup(sam, project.pk)
+        self.assertGreater(data["timeline"]["event_count"], 5)
+        self.assertTrue(any(b["stale"] for b in data["blockers"]))
+        self.assertTrue(data["schedule_health"]["slipped"])
+        self.assertTrue(data["schedule_health"]["downstream_moved"])
+        call_command("seed_standup_demo", "--reset", stdout=StringIO())
+        self.assertEqual(Project.objects.filter(name="Mobile App Launch (demo)").count(), 1)
