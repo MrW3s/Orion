@@ -32,6 +32,7 @@ from datetime import date, datetime
 
 from accounts.services import RoleService
 from common.errors import InvalidNote, NotAllowed
+from common.validation import check_text
 from projects.access import ProjectAccess
 from projects.models import ClientNote, Project
 from tasks.models import GanttReport, TaskStatus
@@ -120,6 +121,7 @@ class ClientDashboardService:
         project = self._access.require_owner(user, project_id)
         if not text.strip():
             raise InvalidNote("Write a note first")
+        check_text(text, InvalidNote, "Note")
         ClientNote.objects.create(project=project, author=user, text=text.strip())
 
     @staticmethod

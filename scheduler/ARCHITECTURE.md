@@ -31,7 +31,7 @@ Requests flow one way: **controller → service → (repository | engine | acces
 | `projects/` | Projects, who belongs to them (members, owner), creating them, client notes | The membership and ownership rules (`access.py`) |
 | `clients/` | The client's view-only dashboard: progress, and notes for the team | Which project details a client may see (`ClientProject` / `ClientTask` in `services.py`) |
 | `notifications/` | Telling connected members that something changed | The real-time transport (Channels/WebSockets) |
-| `common/` | Shared domain errors and their HTTP mapping | Mapping from business errors to HTTP status codes |
+| `common/` | Shared domain errors and their HTTP mapping; input checks against script injection (`validation.py`, security story 1) | Mapping from business errors to HTTP status codes; which characters and markup user input may contain |
 | `config/` | Settings, URL routing, ASGI entry point | Deployment details |
 
 ### Inside `tasks/`, each file has one job
