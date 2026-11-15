@@ -18,6 +18,7 @@ from django.db import transaction
 
 from accounts.services import RoleService
 from common.errors import InvalidProject, NotAllowed, ProjectNotFound
+from common.validation import check_name
 
 from .models import Project
 
@@ -46,6 +47,7 @@ class ProjectService:
             raise NotAllowed("Your role can't create projects")
         if not new.name.strip():
             raise InvalidProject("Give the project a name")
+        check_name(new.name, InvalidProject)
         members = list(get_user_model().objects.filter(pk__in=new.member_ids)
                        .select_related("profile"))
         if len(members) != len(set(new.member_ids)):

@@ -26,6 +26,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from common.errors import InvalidRoleChange, InvalidUser, NotAnAdmin, UserNotFound
+from common.validation import check_username
 
 from .models import Profile, Role
 
@@ -121,6 +122,7 @@ class RoleService:
         username = username.strip()
         if not username:
             raise InvalidUser("Enter a username")
+        check_username(username, InvalidUser)
         User = get_user_model()
         # Case-insensitive, so "John" and "john" can't both exist.
         if User.objects.filter(username__iexact=username).exists():
