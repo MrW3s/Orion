@@ -1,0 +1,44 @@
+{% extends "accounts/base.html" %}
+
+{% block title %}Edit {{ row.user.username }} · Orion{% endblock %}
+
+{% block content %}
+<h1>Edit {{ row.user.get_full_name|default:row.user.username }}</h1>
+
+<div class="card">
+  <p class="small muted">These details are what the employee list searches and filters on.
+    Change roles on <a href="{% url 'manage-users' %}">Manage users</a>.</p>
+  <p>Role: <span class="badge">{{ row.role.label }}</span></p>
+  {% if form.errors %}
+    <div class="msg msg-error">
+      Nothing was saved. {% for error in form.non_field_errors %}{{ error }}.{% empty %}Fix the fields marked below.{% endfor %}
+    </div>
+  {% endif %}
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <div class="grid2">
+      <div class="field">
+        <label for="{{ form.first_name.id_for_label }}">First name</label>
+        {{ form.first_name }}{{ form.first_name.errors }}
+      </div>
+      <div class="field">
+        <label for="{{ form.last_name.id_for_label }}">Last name</label>
+        {{ form.last_name }}{{ form.last_name.errors }}
+      </div>
+      <div class="field">
+        <label for="{{ form.email.id_for_label }}">Email</label>
+        {{ form.email }}{{ form.email.errors }}
+      </div>
+      <div class="field">
+        <label for="{{ form.department.id_for_label }}">Department</label>
+        {{ form.department }}{{ form.department.errors }}
+      </div>
+      <div class="field">
+        <label for="{{ form.availability.id_for_label }}">Availability</label>
+        {{ form.availability }}{{ form.availability.errors }}
+      </div>
+    </div>
+    <button>Save</button> <a href="{% url 'employees' %}">Cancel</a>
+  </form>
+</div>
+{% endblock %}

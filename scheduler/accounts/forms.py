@@ -3,7 +3,7 @@ rules (username taken, password strength) are in services.py."""
 from django import forms
 from django.contrib.auth.validators import UnicodeUsernameValidator
 
-from .models import Role
+from .models import Availability, Role
 
 PASSWORD = forms.PasswordInput(attrs={"autocomplete": "new-password"})
 
@@ -26,3 +26,12 @@ class NewUserForm(forms.Form):
                 and cleaned["password1"] != cleaned["password2"]:
             self.add_error("password2", "The passwords don't match.")
         return cleaned
+
+
+class EmployeeDetailsForm(forms.Form):
+    """Admins: the details the employee list searches and filters on."""
+    first_name = forms.CharField(max_length=150, required=False)
+    last_name = forms.CharField(max_length=150, required=False)
+    email = forms.EmailField(required=False, error_messages={"invalid": "Enter a valid email address."})
+    department = forms.CharField(max_length=60, required=False)
+    availability = forms.ChoiceField(choices=Availability.choices, initial=Availability.AVAILABLE)

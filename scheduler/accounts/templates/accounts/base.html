@@ -66,6 +66,11 @@
     .page-head h1 { margin-right: auto; }
     a.button { display: inline-block; padding: 6px 14px; border-radius: 6px; background: var(--accent);
                color: #fff; text-decoration: none; }
+    .filters { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 0 12px; align-items: end; }
+    .filters .actions { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
+    .avail-available { background: var(--ok-bg); color: var(--ok-text); }
+    .avail-limited { background: #fff4d6; color: #8a5a00; }
+    .avail-unavailable { background: #eef0f3; color: var(--muted); }
     a.button.secondary { background: #e8eefc; color: var(--accent); }
   </style>
   {% block head %}{% endblock %}
@@ -75,6 +80,7 @@
   <header>
     <span class="brand">Orion</span>
     <a href="{% url 'home' %}">Home</a>
+    {% if can_view_employees %}<a href="{% url 'employees' %}">Employees</a>{% endif %}
     {% if is_admin %}<a href="{% url 'manage-users' %}">Manage users</a>
     <a href="{% url 'manage-projects' %}">Projects</a>{% endif %}
     <span class="spacer"></span>
