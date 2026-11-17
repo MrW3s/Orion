@@ -8,6 +8,9 @@ The rules themselves live in services.py.
     GET  /users/               admins only: every user's role + the permission table
     POST /users/               admins only: create a user (username, password, role)
     POST /users/<id>/role/     admins only: change one user's role
+    GET/POST /users/<id>/details/  admins only: name, email, department, availability
+    GET  /employees/           admins + PMs: search (?q=) and filter the employee list
+                               (?role= &department= &availability=)
     GET/POST /password/        any user: change your own password
 """
 from django.contrib import messages
@@ -19,11 +22,11 @@ from django.shortcuts import redirect, render
 from django.urls import reverse_lazy
 from django.views.decorators.http import require_POST
 
-from common.errors import DomainError, NotAnAdmin
+from common.errors import DomainError, NotAllowed, NotAnAdmin
 
-from .forms import NewUserForm
-from .models import Role
-from .services import RoleService
+from .forms import EmployeeDetailsForm, NewUserForm
+from .models import Availability, Role
+from .services import EMPLOYEE_ROLES, EmployeeDirectory, RoleService
 
 
 @login_required
@@ -78,6 +81,62 @@ def change_role(request, user_id: int):
     else:
         messages.success(request, f"Updated {row.user.username} to {row.role.label}.")
     return redirect("manage-users")
+
+
+@login_required
+def employees(request):
+    directory = EmployeeDirectory()
+    try:
+        directory.require_viewer(request.user)
+    except NotAllowed as exc:
+        raise PermissionDenied(str(exc)) from exc
+
+    filters = {key: request.GET.get(key, "").strip()
+               for key in ("q", "role", "department", "availability")}
+    try:
+        rows = directory.search(request.user, **filters)
+    except DomainError as exc:
+        messages.error(request, f"{exc}. Showing everyone instead.")
+        rows = directory.search(request.user)
+        filters = dict.fromkeys(filters, "")
+
+    return render(request, "accounts/employees.html", {
+        "rows": rows,
+        "total": len(rows) if not any(filters.values()) else len(directory.search(request.user)),
+        "filters": filters,
+        "filtering": any(filters.values()),
+        "roles": [(r.value, r.label) for r in EMPLOYEE_ROLES],
+        "departments": directory.departments(request.user),
+        "availabilities": Availability.choices,
+        "can_edit": RoleService().can(request.user, "manage_users"),
+    })
+
+
+@login_required
+def employee_details(request, user_id: int):
+    directory = EmployeeDirectory()
+    try:
+        row = directory.get(request.user, user_id)
+    except NotAnAdmin as exc:
+        raise PermissionDenied(str(exc)) from exc
+    except DomainError as exc:
+        messages.error(request, str(exc))
+        return redirect("employees")
+
+    initial = {"first_name": row.user.first_name, "last_name": row.user.last_name,
+               "email": row.user.email, "department": row.department,
+               "availability": row.availability}
+    form = EmployeeDetailsForm(request.POST if request.method == "POST" else None, initial=initial)
+    if form.is_valid():
+        try:
+            row = directory.update_details(request.user, user_id, **form.cleaned_data)
+        except DomainError as exc:
+            form.add_error(None, str(exc))
+        else:
+            messages.success(request, f"Saved {row.user.username}'s details.")
+            return redirect("employees")
+
+    return render(request, "accounts/employee_details.html", {"row": row, "form": form})
 
 
 class ChangePasswordView(SuccessMessageMixin, PasswordChangeView):

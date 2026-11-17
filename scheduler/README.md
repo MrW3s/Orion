@@ -83,6 +83,8 @@ Open http://127.0.0.1:8000/ and log in.
 | `/login/` | anyone | log in |
 | `/` | any user | your role, what it lets you access, your projects (clients go to `/dashboard/`) |
 | `/users/` | admins only | story 4: change any user's role (team member / project manager / administrator / client), and add new users with a password and role |
+| `/employees/` | admins + project managers | sprint 2 story 3: search employees by name or email, and filter by role, department and availability (`?q=&role=&department=&availability=`). Shows "No employees found" when nothing matches. Clients aren't listed |
+| `/users/<id>/details/` | admins only | set an employee's name, email, department and availability (what `/employees/` searches and filters on) |
 | `/password/` | any user | change your own password |
 | `/projects/new/` | project managers, admins | create a project and pick its members (you're added automatically; clients can't be members) |
 | `/projects/` | admins only | every project, and which client owns it (pick a user with the Client role, or no owner) |

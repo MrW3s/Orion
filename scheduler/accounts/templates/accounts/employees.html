@@ -1,0 +1,80 @@
+{% extends "accounts/base.html" %}
+
+{% block title %}Employees · Orion{% endblock %}
+{% block main_width %}1040px{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Employees</h1>
+  {% if can_edit %}<a class="button secondary" href="{% url 'manage-users' %}#add-user">+ Add a user</a>{% endif %}
+</div>
+
+<div class="card">
+  <form method="get" action="{% url 'employees' %}" class="filters" role="search">
+    <div class="field">
+      <label for="q">Search</label>
+      <input type="search" id="q" name="q" value="{{ filters.q }}" placeholder="Name or email">
+    </div>
+    <div class="field">
+      <label for="role">Role</label>
+      <select id="role" name="role">
+        <option value="">All roles</option>
+        {% for value, label in roles %}
+          <option value="{{ value }}"{% if value == filters.role %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="department">Department</label>
+      <select id="department" name="department">
+        <option value="">All departments</option>
+        {% for name in departments %}
+          <option value="{{ name }}"{% if name|lower == filters.department|lower %} selected{% endif %}>{{ name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="availability">Availability</label>
+      <select id="availability" name="availability">
+        <option value="">Any availability</option>
+        {% for value, label in availabilities %}
+          <option value="{{ value }}"{% if value == filters.availability %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="actions">
+      <button>Apply</button>
+      {% if filtering %}<a href="{% url 'employees' %}">Clear search and filters</a>{% endif %}
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <p class="muted small" id="result-count">
+    {% if filtering %}Showing {{ rows|length }} of {{ total }} employee{{ total|pluralize }}{% else %}{{ total }} employee{{ total|pluralize }}{% endif %}
+  </p>
+  {% if rows %}
+  <table>
+    <tr><th>Name</th><th>Email</th><th>Role</th><th>Department</th><th>Availability</th>{% if can_edit %}<th></th>{% endif %}</tr>
+    {% for row in rows %}
+    <tr>
+      <td>
+        {{ row.user.get_full_name|default:row.user.username }}
+        {% if row.user.get_full_name %}<div class="small muted">{{ row.user.username }}</div>{% endif %}
+      </td>
+      <td>{% if row.user.email %}<a href="mailto:{{ row.user.email }}">{{ row.user.email }}</a>{% else %}<span class="muted">&mdash;</span>{% endif %}</td>
+      <td>{{ row.role.label }}</td>
+      <td>{{ row.department|default:"—" }}</td>
+      <td><span class="status avail-{{ row.availability }}">{{ row.availability.label }}</span></td>
+      {% if can_edit %}<td><a href="{% url 'employee-details' row.user.pk %}">Edit</a></td>{% endif %}
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+    <div style="text-align:center; padding: 24px 0;">
+      <h2>No employees found</h2>
+      <p class="muted">Try a different name or email, or <a href="{% url 'employees' %}">clear the search and filters</a>.</p>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

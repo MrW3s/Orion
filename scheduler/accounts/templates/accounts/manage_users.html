@@ -7,7 +7,7 @@
 
 <div class="card">
   <table>
-    <tr><th>User</th><th>Role</th></tr>
+    <tr><th>User</th><th>Role</th><th></th></tr>
     {% for row in rows %}
     <tr>
       <td>
@@ -29,6 +29,7 @@
           </form>
         {% endif %}
       </td>
+      <td><a href="{% url 'employee-details' row.user.pk %}">Edit details</a></td>
     </tr>
     {% endfor %}
   </table>

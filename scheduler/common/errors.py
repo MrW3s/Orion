@@ -41,6 +41,10 @@ class NotAllowed(DomainError):
     """The user's role doesn't include this feature."""
 
 
+class InvalidFilter(DomainError):
+    """An employee-list filter names a role or availability that doesn't exist."""
+
+
 class InvalidUser(DomainError):
     """New user data breaks a rule (username taken, weak password)."""
 
